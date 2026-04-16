@@ -1,497 +1,785 @@
 import { useState, useRef, useCallback } from "react";
-import { Line, Bar } from "react-chartjs-2";
 import {
   Chart, LineElement, BarElement, CategoryScale,
   LinearScale, PointElement, Filler, Tooltip,
 } from "chart.js";
+import { Line, Bar } from "react-chartjs-2";
+
 Chart.register(LineElement, BarElement, CategoryScale, LinearScale, PointElement, Filler, Tooltip);
 
+// ── channel config ──────────────────────────────────────────────────────────
 const CH = [
-  { nm:410, r:"VIS",    c:"#a78bfa" },{ nm:435, r:"VIS",    c:"#818cf8" },
-  { nm:460, r:"VIS",    c:"#60a5fa" },{ nm:485, r:"VIS",    c:"#22d3ee" },
-  { nm:510, r:"VIS",    c:"#34d399" },{ nm:535, r:"VIS",    c:"#4ade80" },
-  { nm:560, r:"VIS",    c:"#a3e635" },{ nm:585, r:"VIS",    c:"#facc15" },
-  { nm:610, r:"VIS",    c:"#fb923c" },{ nm:645, r:"VIS",    c:"#f87171" },
-  { nm:680, r:"VIS",    c:"#ef4444" },{ nm:705, r:"R-Edge", c:"#f43f5e" },
-  { nm:730, r:"NIR",    c:"#e879f9" },{ nm:760, r:"NIR",    c:"#c084fc" },
-  { nm:810, r:"NIR",    c:"#a855f7" },{ nm:860, r:"NIR",    c:"#818cf8" },
-  { nm:900, r:"NIR",    c:"#6366f1" },{ nm:940, r:"NIR",    c:"#38bdf8" },
+  { nm: 410,  r: "VIS",    col: "#c084fc" },
+  { nm: 435,  r: "VIS",    col: "#a78bfa" },
+  { nm: 460,  r: "VIS",    col: "#60a5fa" },
+  { nm: 485,  r: "VIS",    col: "#22d3ee" },
+  { nm: 510,  r: "VIS",    col: "#34d399" },
+  { nm: 535,  r: "VIS",    col: "#4ade80" },
+  { nm: 560,  r: "VIS",    col: "#a3e635" },
+  { nm: 585,  r: "VIS",    col: "#facc15" },
+  { nm: 610,  r: "VIS",    col: "#fb923c" },
+  { nm: 645,  r: "VIS",    col: "#f87171" },
+  { nm: 680,  r: "VIS",    col: "#ef4444" },
+  { nm: 705,  r: "R-Edge", col: "#f43f5e" },
+  { nm: 730,  r: "NIR",    col: "#e879f9" },
+  { nm: 760,  r: "NIR",    col: "#c084fc" },
+  { nm: 810,  r: "NIR",    col: "#818cf8" },
+  { nm: 860,  r: "NIR",    col: "#6366f1" },
+  { nm: 900,  r: "NIR",    col: "#3b82f6" },
+  { nm: 940,  r: "NIR",    col: "#0ea5e9" },
 ];
-const HLEN = 80;
-const h2r = (h,a) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; };
 
-function soil(v){
-  if(!v||v.every(x=>x===0)) return null;
-  const nir=(v[12]+v[13]+v[14]+v[15]+v[16]+v[17])/6;
-  const vis=(v[0]+v[1]+v[2]+v[3]+v[4]+v[5]+v[6]+v[7]+v[8]+v[9]+v[10]+v[11])/12;
-  const moisture=Math.max(0,Math.min(100,Math.round((1-nir/4095)*90)));
-  const om=Math.max(0.5,Math.min(15,((4095-vis)/4095*10)+1.2)).toFixed(1);
-  const ec=Math.max(0.1,Math.min(6,((v[15]-v[17])/(v[15]+v[17]+1))*3+1.8)).toFixed(2);
-  const ndmi=((nir-vis)/(nir+vis+1)).toFixed(3);
-  const N=Math.round(Math.max(20,Math.min(350,200-(moisture*0.7)+(parseFloat(om)*14))));
-  const P=Math.round(Math.max(10,Math.min(160,(v[8]/4095)*100+30)));
-  const K=Math.round(Math.max(30,Math.min(280,(v[10]/4095)*110+80)));
-  const score=Math.round(Math.min(98,Math.max(8,(parseFloat(om)/10)*35+(1-Math.abs(moisture-42)/42)*30+(N/350)*20+(K/280)*15)));
-  const avg=Math.round(v.reduce((a,b)=>a+b,0)/18);
-  return{moisture,om,ec,ndmi,N,P,K,score,avg};
+const HLEN = 60;
+const rgba = (hex, a) => {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+};
+
+// ── soil maths ──────────────────────────────────────────────────────────────
+function calcSoil(v) {
+  if (!v || v.every(x => x === 0)) return null;
+  const nir = (v[12]+v[13]+v[14]+v[15]+v[16]+v[17]) / 6;
+  const vis = (v[0]+v[1]+v[2]+v[3]+v[4]+v[5]+v[6]+v[7]+v[8]+v[9]+v[10]+v[11]) / 12;
+  const moisture = Math.max(0, Math.min(100, Math.round((1 - nir/4095) * 90)));
+  const om  = Math.max(0.5, Math.min(15, ((4095-vis)/4095*10)+1.2)).toFixed(1);
+  const ec  = Math.max(0.1, Math.min(6,  ((v[15]-v[17])/(v[15]+v[17]+1))*3+1.8)).toFixed(2);
+  const ndmi= ((nir-vis)/(nir+vis+1)).toFixed(3);
+  const N   = Math.round(Math.max(20, Math.min(350, 200-(moisture*0.7)+(parseFloat(om)*14))));
+  const P   = Math.round(Math.max(10, Math.min(160, (v[8]/4095)*100+30)));
+  const K   = Math.round(Math.max(30, Math.min(280, (v[10]/4095)*110+80)));
+  const score = Math.round(Math.min(98, Math.max(8,
+    (parseFloat(om)/10)*35 + (1-Math.abs(moisture-42)/42)*30 + (N/350)*20 + (K/280)*15
+  )));
+  return { moisture, om, ec, ndmi, N, P, K, score };
 }
 
-function Spark({history,color,height=48}){
-  const data={labels:history.map((_,i)=>i),datasets:[{data:history,borderColor:color,backgroundColor:h2r(color,.10),borderWidth:1.5,pointRadius:0,tension:.4,fill:true}]};
-  const opts={responsive:true,maintainAspectRatio:false,animation:{duration:0},plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false,min:0,max:4095}}};
-  return <div style={{height}}><Line data={data} options={opts}/></div>;
-}
-
-function Ring({value,max=100,color,size=76}){
-  const r=28,cx=36,cy=36,circ=2*Math.PI*r;
-  const off=circ*(1-(value!=null?Math.min(1,Math.max(0,value/max)):0));
-  return(
-    <svg width={size} height={size} viewBox="0 0 72 72">
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1e293b" strokeWidth="8"/>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={value!=null?color:"#334155"} strokeWidth="8"
-        strokeDasharray={circ} strokeDashoffset={off} strokeLinecap="round"
-        transform={`rotate(-90 ${cx} ${cy})`} style={{transition:"stroke-dashoffset .5s"}}/>
-      <text x={cx} y={cy+6} textAnchor="middle" fontSize="14" fontWeight="700"
-        fill={value!=null?color:"#475569"} fontFamily="monospace">{value!=null?value:"—"}</text>
-    </svg>
-  );
-}
-
-function NPKBar({el,val,max,color}){
-  const pct=val!=null?Math.min(100,val/max*100):0;
-  const lvl=val==null?"—":val<max*.25?"LOW":val<max*.6?"MED":"HIGH";
-  const lc=lvl==="LOW"?"#f87171":lvl==="HIGH"?"#4ade80":"#facc15";
-  return(
-    <div className="flex items-center gap-3">
-      <span className="w-5 text-sm font-bold" style={{color}}>{el}</span>
-      <div className="flex-1">
-        <div className="flex justify-between mb-1">
-          <span className="text-xs text-slate-400 font-mono">{val!=null?val+" ppm":"—"}</span>
-          <span className="text-xs font-bold" style={{color:lc}}>{lvl}</span>
-        </div>
-        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-500"
-            style={{width:pct+"%",background:`linear-gradient(90deg,${color}66,${color})`}}/>
-        </div>
-      </div>
+// ── tiny sparkline ──────────────────────────────────────────────────────────
+function Spark({ data, color }) {
+  const cfg = {
+    labels: data.map((_,i) => i),
+    datasets: [{
+      data,
+      borderColor: color,
+      backgroundColor: rgba(color, 0.12),
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.4,
+      fill: true,
+    }],
+  };
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 0 },
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    scales: { x: { display: false }, y: { display: false, min: 0, max: 4095 } },
+  };
+  return (
+    <div style={{ height: 48, width: "100%" }}>
+      <Line data={cfg} options={opts} />
     </div>
   );
 }
 
-function ChCard({ch,idx,val,hist,selected,onClick}){
-  const pct=Math.round(val/4095*100);
-  return(
-    <button onClick={onClick}
-      className="rounded-xl p-3 text-left transition-all border-2 bg-slate-900 hover:bg-slate-800 w-full"
-      style={{borderColor:selected?ch.c:"transparent",boxShadow:selected?`0 0 14px ${ch.c}30`:"none"}}>
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full" style={{background:ch.c,boxShadow:`0 0 5px ${ch.c}99`}}/>
-          <span className="font-bold text-sm" style={{color:ch.c}}>{ch.nm}<span className="text-[10px] font-normal text-slate-500"> nm</span></span>
-        </div>
-        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-          style={{background:h2r(ch.c,.12),color:ch.c}}>{ch.r}</span>
-      </div>
-      <Spark history={hist} color={ch.c} height={46}/>
-      <div className="flex items-center gap-2 mt-1.5">
-        <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-300" style={{width:pct+"%",background:ch.c}}/>
-        </div>
-        <span className="font-mono text-xs font-bold min-w-[34px] text-right" style={{color:ch.c}}>{val}</span>
-      </div>
-    </button>
+// ── score arc ───────────────────────────────────────────────────────────────
+function ScoreArc({ score }) {
+  const r = 42, cx = 52, cy = 52, circ = 2 * Math.PI * r;
+  const pct = score != null ? Math.min(1, score / 100) : 0;
+  const offset = circ * (1 - pct);
+  const col = score == null ? "#334155"
+    : score >= 70 ? "#22c55e"
+    : score >= 45 ? "#f59e0b"
+    : "#ef4444";
+  const grade = score == null ? "—"
+    : score >= 70 ? "Good"
+    : score >= 45 ? "Fair"
+    : "Poor";
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+      <svg width={104} height={104} viewBox="0 0 104 104">
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1e293b" strokeWidth={10}/>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={col} strokeWidth={10}
+          strokeDasharray={circ} strokeDashoffset={offset}
+          strokeLinecap="round" transform={`rotate(-90 ${cx} ${cy})`}
+          style={{ transition: "stroke-dashoffset 0.6s ease" }}
+        />
+        <text x={cx} y={cy-6} textAnchor="middle" fontSize={22} fontWeight={700}
+          fill={col} fontFamily="monospace">
+          {score ?? "—"}
+        </text>
+        <text x={cx} y={cy+14} textAnchor="middle" fontSize={11}
+          fill="#64748b" fontFamily="monospace">
+          /100
+        </text>
+      </svg>
+      <span style={{ fontSize:12, fontWeight:600, color: col }}>{grade}</span>
+    </div>
   );
 }
 
-export default function App(){
-  const [adc,setAdc]=useState(new Array(18).fill(0));
-  const [connected,setConn]=useState(false);
-  const [paused,setPaused]=useState(false);
-  const [readings,setReadings]=useState(0);
-  const [errCount,setErrCount]=useState(0);
-  const [lastRaw,setLastRaw]=useState("— waiting for data");
-  const [darkRef,setDarkRef]=useState(null);
-  const [whiteRef,setWhiteRef]=useState(null);
-  const [selCh,setSelCh]=useState(15);
-  const [tab,setTab]=useState("dashboard");
-  const [log,setLog]=useState([]);
-  const [expBuf,setExpBuf]=useState([]);
+// ── main app ────────────────────────────────────────────────────────────────
+export default function App() {
+  const [adc,      setAdc]     = useState(new Array(18).fill(0));
+  const [hist,     setHist]    = useState(() => Array.from({length:18}, () => Array(HLEN).fill(0)));
+  const [conn,     setConn]    = useState(false);
+  const [paused,   setPaused]  = useState(false);
+  const [reads,    setReads]   = useState(0);
+  const [errors,   setErrors]  = useState(0);
+  const [rawLine,  setRawLine] = useState("— waiting for device");
+  const [darkRef,  setDarkRef] = useState(null);
+  const [whiteRef, setWhite]   = useState(null);
+  const [selCh,    setSelCh]   = useState(15);
+  const [tab,      setTab]     = useState("overview");
+  const [logs,     setLogs]    = useState([]);
+  const [csvBuf,   setCsvBuf]  = useState([]);
 
-  const histRef=useRef(Array.from({length:18},()=>Array(HLEN).fill(0)));
-  const [hist,setHist]=useState(Array.from({length:18},()=>Array(HLEN).fill(0)));
-  const adcRef=useRef(new Array(18).fill(0));
-  const portRef=useRef(null);
-  const readerRef=useRef(null);
-  const pausedRef=useRef(false);
+  const histRef  = useRef(Array.from({length:18}, () => Array(HLEN).fill(0)));
+  const adcRef   = useRef(new Array(18).fill(0));
+  const portRef  = useRef(null);
+  const rdrRef   = useRef(null);
+  const pauseRef = useRef(false);
 
-  const addLog=useCallback((msg,type="info")=>{
-    const ts=new Date().toLocaleTimeString("en-GB");
-    setLog(p=>{const n=[...p,{ts,msg,type}];return n.length>150?n.slice(-150):n;});
-  },[]);
+  const log = useCallback((msg, t="info") => {
+    const ts = new Date().toLocaleTimeString("en-GB");
+    setLogs(p => { const n=[...p,{ts,msg,t}]; return n.length>200?n.slice(-200):n; });
+  }, []);
 
-  async function connect(){
-    if(connected){await doDisc();return;}
-    try{
-      portRef.current=await navigator.serial.requestPort({filters:[{usbVendorId:0x03EB}]});
-      await portRef.current.open({baudRate:115200,dataBits:8,stopBits:1,parity:"none"});
+  async function connect() {
+    if (conn) { await disconnect(); return; }
+    try {
+      portRef.current = await navigator.serial.requestPort({ filters:[{usbVendorId:0x03EB}] });
+      await portRef.current.open({ baudRate:115200, dataBits:8, stopBits:1, parity:"none" });
       setConn(true);
-      addLog("Port opened — 115200 8N1","ok");
-      addLog("Waiting for AS7265x stream  (RAW:v1,…,v18)","info");
-      const dec=new TextDecoderStream();
+      log("Port opened — 115200 8N1", "ok");
+      log("Waiting for data: RAW:v1,v2,...,v18", "info");
+
+      const dec = new TextDecoderStream();
       portRef.current.readable.pipeTo(dec.writable);
-      readerRef.current=dec.readable.getReader();
-      let buf="",localN=0;
-      while(true){
-        const{value,done}=await readerRef.current.read();
-        if(done)break;
-        buf+=value;
-        const lines=buf.split(/\r?\n/);buf=lines.pop();
-        for(const line of lines){
-          const t=line.trim();if(!t)continue;
-          setLastRaw(t.slice(0,90));
-          let raw=t;
-          if(raw.toUpperCase().startsWith("RAW:"))raw=raw.slice(4);
-          const vals=raw.split(",").map(v=>parseInt(v.trim(),10));
-          if(vals.length===18&&vals.every(v=>!isNaN(v)&&v>=0&&v<=65535)){
-            if(!pausedRef.current){
-              const dark=darkRef||new Array(18).fill(0);
-              const white=whiteRef||new Array(18).fill(4095);
-              const corr=vals.map((v,i)=>Math.max(0,Math.min(4095,Math.round((v-dark[i])/(white[i]-dark[i]+1)*4095))));
-              histRef.current=histRef.current.map((a,i)=>{const n=[...a,corr[i]];return n.length>HLEN?n.slice(-HLEN):n;});
-              setHist(histRef.current.map(a=>[...a]));
-              adcRef.current=corr;setAdc([...corr]);
-              localN++;setReadings(localN);
-              setExpBuf(p=>{const r=[new Date().toISOString(),...corr];const n=[...p,r];return n.length>10000?n.slice(-10000):n;});
+      rdrRef.current = dec.readable.getReader();
+
+      let buf = "", n = 0;
+      while (true) {
+        const { value, done } = await rdrRef.current.read();
+        if (done) break;
+        buf += value;
+        const lines = buf.split(/\r?\n/); buf = lines.pop();
+        for (const raw of lines) {
+          const line = raw.trim(); if (!line) continue;
+          setRawLine(line.slice(0, 80));
+          let s = line;
+          if (s.toUpperCase().startsWith("RAW:")) s = s.slice(4);
+          const vals = s.split(",").map(v => parseInt(v.trim(), 10));
+          if (vals.length === 18 && vals.every(v => !isNaN(v) && v >= 0 && v <= 65535)) {
+            if (!pauseRef.current) {
+              const dark  = darkRef  || new Array(18).fill(0);
+              const white = whiteRef || new Array(18).fill(4095);
+              const corr  = vals.map((v,i) =>
+                Math.max(0, Math.min(4095, Math.round((v - dark[i]) / (white[i] - dark[i] + 1) * 4095)))
+              );
+              histRef.current = histRef.current.map((a,i) => {
+                const nx = [...a, corr[i]];
+                return nx.length > HLEN ? nx.slice(-HLEN) : nx;
+              });
+              setHist(histRef.current.map(a => [...a]));
+              adcRef.current = corr;
+              setAdc([...corr]);
+              n++;
+              setReads(n);
+              setCsvBuf(p => {
+                const row = [new Date().toISOString(), ...corr];
+                const nx = [...p, row];
+                return nx.length > 10000 ? nx.slice(-10000) : nx;
+              });
             }
-          }else if(t.includes(","))setErrCount(e=>e+1);
+          } else if (line.includes(",")) {
+            setErrors(e => e+1);
+          }
         }
       }
-    }catch(e){
-      if(e.name!=="NotFoundError")addLog("Error: "+e.message,"err");
-      else addLog("Port selection cancelled","warn");
+    } catch(e) {
+      if (e.name !== "NotFoundError") log("Error: " + e.message, "err");
+      else log("Cancelled", "warn");
       setConn(false);
     }
   }
 
-  async function doDisc(){
-    setConn(false);addLog("Disconnected","warn");
-    try{if(readerRef.current){await readerRef.current.cancel();readerRef.current=null;}
-        if(portRef.current){await portRef.current.close();portRef.current=null;}}catch{}
+  async function disconnect() {
+    setConn(false); log("Disconnected", "warn");
+    try {
+      if (rdrRef.current)  { await rdrRef.current.cancel();  rdrRef.current = null; }
+      if (portRef.current) { await portRef.current.close();  portRef.current = null; }
+    } catch {}
   }
 
-  function togglePause(){pausedRef.current=!pausedRef.current;setPaused(pausedRef.current);addLog(pausedRef.current?"Paused":"Resumed","warn");}
-  function capDark(){if(!connected||readings===0){addLog("No live data","err");return;}setDarkRef([...adcRef.current]);addLog("Dark ref captured","ok");}
-  function capWhite(){if(!connected||readings===0){addLog("No live data","err");return;}setWhiteRef([...adcRef.current]);addLog("White ref captured","ok");}
-  function doExport(){
-    if(!expBuf.length){addLog("No data","warn");return;}
-    const hdr=["timestamp",...CH.map(c=>c.nm+"nm")].join(",");
-    const blob=new Blob([hdr+"\n"+expBuf.map(r=>r.join(",")).join("\n")],{type:"text/csv"});
-    const a=document.createElement("a");a.href=URL.createObjectURL(blob);
-    a.download="soilspec_"+new Date().toISOString().slice(0,19).replace(/:/g,"-")+".csv";a.click();
-    addLog("Exported "+expBuf.length+" rows","ok");
+  function togglePause() {
+    pauseRef.current = !pauseRef.current;
+    setPaused(pauseRef.current);
+    log(pauseRef.current ? "Paused" : "Resumed", "warn");
   }
 
-  const p=soil(adc);
-  const sc=!p?"#64748b":p.score>=70?"#4ade80":p.score>=45?"#facc15":"#f87171";
+  function captureDark() {
+    if (!conn || reads === 0) { log("No data", "err"); return; }
+    setDarkRef([...adcRef.current]);
+    log("Dark ref set — avg " + Math.round(adcRef.current.reduce((a,b)=>a+b)/18), "ok");
+  }
 
-  const specChart={
-    labels:CH.map(c=>c.nm+""),
-    datasets:[{data:adc,backgroundColor:CH.map(c=>h2r(c.c,.75)),borderColor:CH.map(c=>c.c),borderWidth:1.5,borderRadius:4}]
+  function captureWhite() {
+    if (!conn || reads === 0) { log("No data", "err"); return; }
+    setWhite([...adcRef.current]);
+    log("White ref set — avg " + Math.round(adcRef.current.reduce((a,b)=>a+b)/18), "ok");
+  }
+
+  function exportCSV() {
+    if (!csvBuf.length) { log("No data to export", "warn"); return; }
+    const hdr = ["timestamp", ...CH.map(c => c.nm+"nm")].join(",");
+    const blob = new Blob([hdr+"\n"+csvBuf.map(r=>r.join(",")).join("\n")], {type:"text/csv"});
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(blob),
+      download: "soilspec_"+new Date().toISOString().slice(0,19).replace(/:/g,"-")+".csv"
+    });
+    a.click();
+    log("Exported " + csvBuf.length + " rows", "ok");
+  }
+
+  const soil = calcSoil(adc);
+  const scoreCol = !soil ? "#64748b" : soil.score>=70 ? "#22c55e" : soil.score>=45 ? "#f59e0b" : "#ef4444";
+
+  // spectrum bar chart
+  const specBar = {
+    labels: CH.map(c => c.nm + ""),
+    datasets: [{
+      data: adc,
+      backgroundColor: CH.map(c => rgba(c.col, 0.8)),
+      borderColor:     CH.map(c => c.col),
+      borderWidth: 1.5,
+      borderRadius: 3,
+    }],
   };
-  const specOpts={responsive:true,maintainAspectRatio:false,animation:{duration:0},
-    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.parsed.y} ADC — ${CH[ctx.dataIndex].r}`}}},
-    scales:{x:{ticks:{color:"#64748b",font:{size:10}},grid:{color:"#0f172a"},border:{display:false}},
-            y:{min:0,max:4095,ticks:{color:"#64748b",font:{size:10},maxTicksLimit:6},grid:{color:"#1e293b"},border:{display:false}}}};
+  const specOpts = {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 0 },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          title: ctx => CH[ctx[0].dataIndex].nm + " nm — " + CH[ctx[0].dataIndex].r,
+          label: ctx => "  ADC: " + ctx.parsed.y,
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color:"#4a6080", font:{ size:10, family:"monospace" } },
+        grid: { color:"#0f172a" },
+        border: { display:false },
+      },
+      y: {
+        min:0, max:4095,
+        ticks: { color:"#4a6080", font:{ size:10 }, maxTicksLimit:6 },
+        grid: { color:"#1a2744" },
+        border: { display:false },
+      },
+    },
+  };
 
-  const trendChart={labels:hist[selCh].map((_,i)=>i),datasets:[{data:hist[selCh],borderColor:CH[selCh].c,backgroundColor:h2r(CH[selCh].c,.10),borderWidth:2,pointRadius:0,tension:.4,fill:true}]};
-  const trendOpts={responsive:true,maintainAspectRatio:false,animation:{duration:0},
-    plugins:{legend:{display:false},tooltip:{enabled:false}},
-    scales:{x:{display:false},y:{min:0,max:4095,ticks:{color:"#64748b",font:{size:9},maxTicksLimit:5},grid:{color:"#1e293b"},border:{display:false}}}};
+  // selected channel trend
+  const trendLine = {
+    labels: hist[selCh].map((_,i) => i),
+    datasets: [{
+      data: hist[selCh],
+      borderColor: CH[selCh].col,
+      backgroundColor: rgba(CH[selCh].col, 0.1),
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.4,
+      fill: true,
+    }],
+  };
+  const trendOpts = {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 0 },
+    plugins: { legend:{ display:false }, tooltip:{ enabled:false } },
+    scales: {
+      x: { display:false },
+      y: {
+        min:0, max:4095,
+        ticks: { color:"#4a6080", font:{ size:10 }, maxTicksLimit:4 },
+        grid: { color:"#1a2744" },
+        border: { display:false },
+      },
+    },
+  };
 
-  const lc={ok:"text-emerald-400",warn:"text-amber-400",err:"text-red-400",info:"text-sky-400"};
+  const S = {
+    page: {
+      display:"flex", flexDirection:"column", height:"100vh",
+      background:"#0a0f1a", color:"#d4e2f4",
+      fontFamily:"'Inter','Segoe UI',sans-serif", fontSize:13,
+    },
 
-  const METRICS=[
-    {label:"Moisture",     val:p?.moisture, unit:"%",     color:"#38bdf8", max:100, icon:"💧",
-     status:p?p.moisture<25?"Dry":p.moisture<65?"Optimal":"Wet":"—",
-     sc:p?p.moisture<25?"#f87171":p.moisture<65?"#4ade80":"#facc15":"#64748b"},
-    {label:"Org. Matter",  val:p?.om,       unit:"% SOM", color:"#4ade80", max:15,  icon:"🌿",
-     status:p?parseFloat(p.om)<2?"Low":parseFloat(p.om)<5?"Moderate":"High":"—",
-     sc:p?parseFloat(p.om)<2?"#f87171":parseFloat(p.om)<5?"#facc15":"#4ade80":"#64748b"},
-    {label:"Conductivity", val:p?.ec,       unit:"mS/cm", color:"#22d3ee", max:6,   icon:"⚡",
-     status:p?parseFloat(p.ec)<0.8?"Low":parseFloat(p.ec)<3?"Normal":"High":"—",
-     sc:p?parseFloat(p.ec)<0.8?"#facc15":parseFloat(p.ec)<3?"#4ade80":"#f87171":"#64748b"},
-    {label:"NIR Index",    val:p?.ndmi,     unit:"NDMI",  color:"#a78bfa", max:1,   icon:"🔬",
-     status:p?parseFloat(p.ndmi)>0.1?"Positive":parseFloat(p.ndmi)<-0.2?"Negative":"Neutral":"—",
-     sc:p?parseFloat(p.ndmi)>0.1?"#4ade80":parseFloat(p.ndmi)<-0.2?"#f87171":"#facc15":"#64748b"},
+    // ── topbar
+    topbar: {
+      display:"flex", alignItems:"center", gap:10,
+      padding:"0 16px", height:50,
+      background:"#101827", borderBottom:"1px solid #1a2a40",
+      flexShrink:0,
+    },
+    logo: { fontSize:16, fontWeight:700, letterSpacing:1, marginRight:8, color:"#d4e2f4" },
+    logoGreen: { color:"#22c55e" },
+
+    tabBar: { display:"flex", gap:4, marginLeft:8 },
+    tab: (on) => ({
+      padding:"5px 14px", borderRadius:6, border:"none",
+      cursor:"pointer", fontSize:12, fontWeight:600,
+      background: on ? "#1c2d45" : "transparent",
+      color: on ? "#d4e2f4" : "#4a6080",
+    }),
+
+    liveChip: (on) => ({
+      display:"flex", alignItems:"center", gap:6,
+      padding:"4px 10px", borderRadius:20,
+      background: on ? "#052e16" : "#0f1929",
+      border: `1px solid ${on ? "#16a34a" : "#1a2a40"}`,
+      color: on ? "#22c55e" : "#4a6080",
+      fontSize:11, fontWeight:700,
+    }),
+    dot: (on) => ({
+      width:7, height:7, borderRadius:"50%",
+      background: on ? "#22c55e" : "#334155",
+      animation: on ? "blink 1.4s infinite" : "none",
+    }),
+
+    connBtn: (on) => ({
+      padding:"5px 14px", borderRadius:8,
+      border:`1px solid ${on ? "#dc2626" : "#16a34a"}`,
+      background: on ? "#1a0505" : "#052e16",
+      color: on ? "#ef4444" : "#22c55e",
+      cursor:"pointer", fontSize:12, fontWeight:700,
+    }),
+    pauseBtn: (on) => ({
+      padding:"5px 14px", borderRadius:8,
+      border:`1px solid ${on ? "#d97706" : "#1a2a40"}`,
+      background: on ? "#1c0f00" : "transparent",
+      color: on ? "#f59e0b" : "#4a6080",
+      cursor:"pointer", fontSize:12, fontWeight:600,
+    }),
+    expBtn: {
+      padding:"5px 14px", borderRadius:8,
+      border:"1px solid #1a3a5a", background:"transparent",
+      color:"#3b82f6", cursor:"pointer", fontSize:12, fontWeight:600,
+    },
+    topRight: { marginLeft:"auto", display:"flex", gap:8, alignItems:"center" },
+    statTxt: { fontSize:11, color:"#2d4060" },
+    statVal: { color:"#4a6080" },
+
+    // ── raw strip
+    rawStrip: {
+      height:20, background:"#070b14", borderBottom:"1px solid #101827",
+      display:"flex", alignItems:"center", padding:"0 16px", gap:8,
+      fontSize:10, fontFamily:"monospace", flexShrink:0,
+    },
+
+    // ── body
+    body: { display:"flex", flex:1, overflow:"hidden" },
+
+    // ── left sidebar
+    sidebar: {
+      width:280, flexShrink:0,
+      background:"#101827", borderRight:"1px solid #1a2a40",
+      display:"flex", flexDirection:"column", overflow:"hidden",
+    },
+    sideSection: { padding:"12px 14px", borderBottom:"1px solid #1a2a40", flexShrink:0 },
+    sideSectionTitle: { fontSize:10, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:"#2d4060", marginBottom:10 },
+
+    // metric card
+    metricGrid: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 },
+    metricCard: (col) => ({
+      background:"#0d1625", border:`1px solid #1a2a40`, borderRadius:10,
+      padding:"10px 12px", borderTop:`2px solid ${col}`,
+    }),
+    metricLabel: { fontSize:10, color:"#4a6080", marginBottom:4, fontWeight:500 },
+    metricValue: (col) => ({ fontSize:24, fontWeight:700, color:col, lineHeight:1, fontFamily:"monospace" }),
+    metricUnit:  { fontSize:10, color:"#2d4060", marginTop:2 },
+    metricBar:   { height:3, background:"#1a2a40", borderRadius:2, marginTop:8, overflow:"hidden" },
+    metricFill:  (col,pct) => ({ height:"100%", borderRadius:2, background:col, width:pct+"%", transition:"width .5s" }),
+    metricStatus: (col) => ({ fontSize:10, fontWeight:700, color:col, marginTop:4 }),
+
+    // score
+    scoreRow: { display:"flex", alignItems:"center", gap:14, padding:"10px 14px", borderBottom:"1px solid #1a2a40", flexShrink:0 },
+
+    // npk
+    npkRow: { display:"flex", alignItems:"center", gap:8, marginBottom:8 },
+    npkEl: (col) => ({ fontSize:13, fontWeight:700, color:col, width:16, textAlign:"center", flexShrink:0 }),
+    npkTrack: { flex:1, height:8, background:"#1a2a40", borderRadius:4, overflow:"hidden" },
+    npkFill: (col,pct) => ({ height:"100%", borderRadius:4, background:col, width:pct+"%", transition:"width .5s" }),
+    npkPpm: (col) => ({ fontSize:11, fontWeight:700, color:col, fontFamily:"monospace", width:52, textAlign:"right" }),
+    npkStatus: (col) => ({ fontSize:9, fontWeight:700, color:col, width:24, textAlign:"right" }),
+
+    // cal
+    calRow: { display:"flex", gap:6 },
+    calBtn: (set) => ({
+      flex:1, padding:"6px", borderRadius:8, cursor:"pointer", fontSize:11, fontWeight:600,
+      border:`1px solid ${set?"#16a34a":"#1a2a40"}`,
+      background: set ? "#052e16" : "transparent",
+      color: set ? "#22c55e" : "#4a6080",
+    }),
+
+    // log
+    logArea: { flex:1, overflowY:"auto", padding:"6px 12px" },
+    logLine: { display:"flex", gap:8, fontSize:10, fontFamily:"monospace", padding:"1px 0" },
+    logTs: { color:"#1a2a40", flexShrink:0 },
+
+    // ── main
+    main: { flex:1, overflow:"auto", padding:14, display:"flex", flexDirection:"column", gap:14, background:"#0a0f1a" },
+
+    card: {
+      background:"#0d1625", border:"1px solid #1a2a40", borderRadius:12, padding:16,
+    },
+    cardHead: { display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 },
+    cardTitle: { fontSize:13, fontWeight:600, color:"#d4e2f4" },
+    cardSub:   { fontSize:11, color:"#2d4060" },
+
+    // 18 channel grid
+    chGrid: { display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:8 },
+    chCard: (sel, col) => ({
+      background:"#0a1020", borderRadius:10, padding:"10px",
+      border: sel ? `2px solid ${col}` : "1px solid #1a2a40",
+      cursor:"pointer", transition:"border-color .12s",
+    }),
+    chHead: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 },
+    chNm: (col) => ({ fontSize:13, fontWeight:700, color:col }),
+    chNmSub: { fontSize:10, fontWeight:400, color:"#2d4060" },
+    chBadge: (col) => ({
+      fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:4,
+      background: col+"22", color:col,
+    }),
+    chAdc: (col) => ({ fontSize:11, fontWeight:700, color:col, fontFamily:"monospace", textAlign:"right", marginTop:4 }),
+    chBarWrap: { height:3, background:"#1a2a40", borderRadius:2, marginTop:4, overflow:"hidden" },
+    chBarFill: (col, pct) => ({ height:"100%", borderRadius:2, background:col, width:pct+"%", transition:"width .3s" }),
+
+    // channel picker strip
+    chPicker: { display:"flex", flexWrap:"wrap", gap:4, marginTop:12 },
+    chPick: (sel, col) => ({
+      padding:"3px 8px", borderRadius:4, cursor:"pointer", fontSize:10, fontWeight:700,
+      background: sel ? col+"28" : "transparent",
+      color: sel ? col : "#2d4060",
+      border: sel ? `1px solid ${col}66` : "1px solid transparent",
+    }),
+
+    // section bands
+    bandHead: { display:"flex", alignItems:"center", gap:10, marginBottom:8 },
+    bandTitle: { fontSize:12, fontWeight:700, color:"#4a6080" },
+    bandSub:   { fontSize:11, color:"#1a2a40" },
+    bandLine:  { flex:1, height:1, background:"#1a2a40" },
+  };
+
+  const METRICS = [
+    {
+      label:"Moisture",    val:soil?.moisture,  unit:"% VWC",  col:"#38bdf8", max:100,
+      status: soil ? (soil.moisture<25?"Dry":soil.moisture<65?"Optimal":"Wet") : "—",
+      statCol: soil ? (soil.moisture<25?"#ef4444":soil.moisture<65?"#22c55e":"#f59e0b") : "#2d4060",
+    },
+    {
+      label:"Org. Matter", val:soil?.om,         unit:"% SOM",  col:"#4ade80", max:15,
+      status: soil ? (parseFloat(soil.om)<2?"Low":parseFloat(soil.om)<5?"Moderate":"High") : "—",
+      statCol: soil ? (parseFloat(soil.om)<2?"#ef4444":parseFloat(soil.om)<5?"#f59e0b":"#22c55e") : "#2d4060",
+    },
+    {
+      label:"Conductivity",val:soil?.ec,         unit:"mS/cm",  col:"#22d3ee", max:6,
+      status: soil ? (parseFloat(soil.ec)<0.8?"Low":parseFloat(soil.ec)<3?"Normal":"High") : "—",
+      statCol: soil ? (parseFloat(soil.ec)<0.8?"#f59e0b":parseFloat(soil.ec)<3?"#22c55e":"#ef4444") : "#2d4060",
+    },
+    {
+      label:"NIR Index",   val:soil?.ndmi,       unit:"NDMI",   col:"#a78bfa", max:1,
+      status: soil ? (parseFloat(soil.ndmi)>0.1?"High":parseFloat(soil.ndmi)<-0.2?"Low":"Neutral") : "—",
+      statCol: soil ? (parseFloat(soil.ndmi)>0.1?"#22c55e":parseFloat(soil.ndmi)<-0.2?"#ef4444":"#f59e0b") : "#2d4060",
+    },
   ];
 
-  return(
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col" style={{fontFamily:"'Inter',sans-serif"}}>
+  const NPK = [
+    { el:"N", val:soil?.N, max:350, col:"#4ade80" },
+    { el:"P", val:soil?.P, max:160, col:"#fb923c" },
+    { el:"K", val:soil?.K, max:280, col:"#c084fc" },
+  ];
+
+  const logColors = { ok:"#22c55e", warn:"#f59e0b", err:"#ef4444", info:"#3b82f6" };
+
+  return (
+    <div style={S.page}>
+      <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
 
       {/* ── TOPBAR ── */}
-      <header className="flex items-center gap-3 px-5 h-14 bg-slate-900 border-b border-slate-800 flex-shrink-0 z-10">
-        <div className="flex items-center gap-2 mr-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-950 border border-emerald-500 flex items-center justify-center flex-shrink-0">
-            <svg className="w-4 h-4 fill-emerald-400" viewBox="0 0 24 24"><path d="M17 8C8 10 5.9 16.17 3.82 22H5.71l1-2.3A4.49 4.49 0 0 0 8 20c9 0 10-18 9-19S17 8 17 8z"/></svg>
-          </div>
-          <span className="text-base font-bold tracking-wide">Soil<span className="text-emerald-400">Spec</span></span>
-          <span className="text-xs text-slate-600 hidden sm:inline">AS7265x · ATSAMD21G17D</span>
-        </div>
+      <div style={S.topbar}>
+        <span style={S.logo}>Soil<span style={S.logoGreen}>Spec</span></span>
 
-        <nav className="flex gap-1">
-          {[["dashboard","Dashboard"],["channels","18 Channels"],["log","Log"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab===k?"bg-slate-800 text-white":"text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"}`}>
-              {l}
-            </button>
+        <div style={S.tabBar}>
+          {[["overview","Overview"],["channels","All 18 Channels"]].map(([k,l])=>(
+            <button key={k} style={S.tab(tab===k)} onClick={()=>setTab(k)}>{l}</button>
           ))}
-        </nav>
-
-        <div className="flex items-center gap-2 ml-2">
-          <span className={`flex items-center gap-1.5 text-xs px-3 py-1 rounded-full border font-semibold ${connected?"bg-emerald-950 border-emerald-700 text-emerald-400":"bg-slate-800 border-slate-700 text-slate-500"}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${connected?"bg-emerald-400 animate-pulse":"bg-slate-600"}`}/>
-            {connected?"LIVE":"OFFLINE"}
-          </span>
-          {paused&&<span className="text-xs px-2 py-1 rounded-full bg-amber-950 border border-amber-700 text-amber-400 font-semibold">PAUSED</span>}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-600 hidden md:inline">{readings} reads · {errCount} err</span>
-          <button onClick={connect} className={`px-4 py-1.5 rounded-lg text-sm font-bold border transition-all ${connected?"bg-red-950 border-red-700 text-red-400 hover:bg-red-900":"bg-emerald-950 border-emerald-700 text-emerald-400 hover:bg-emerald-900"}`}>
-            {connected?"Disconnect":"Connect"}
+        <div style={S.liveChip(conn)}>
+          <span style={S.dot(conn)}/>
+          {conn ? "LIVE" : "OFFLINE"}
+        </div>
+
+        <div style={S.topRight}>
+          <span style={S.statTxt}>reads <b style={S.statVal}>{reads}</b></span>
+          <span style={S.statTxt}>err <b style={{color:"#d97706"}}>{errors}</b></span>
+          <button style={S.connBtn(conn)} onClick={connect}>
+            {conn ? "Disconnect" : "Connect"}
           </button>
-          {connected&&<button onClick={togglePause} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${paused?"bg-amber-950 border-amber-600 text-amber-400":"bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500"}`}>{paused?"Resume":"Pause"}</button>}
-          <button onClick={doExport} className="px-3 py-1.5 rounded-lg text-sm font-bold border border-sky-800 bg-sky-950 text-sky-400 hover:bg-sky-900 transition-all">Export</button>
+          {conn && <button style={S.pauseBtn(paused)} onClick={togglePause}>{paused?"Resume":"Pause"}</button>}
+          <button style={S.expBtn} onClick={exportCSV}>Export CSV</button>
         </div>
-      </header>
-
-      {/* raw strip */}
-      <div className="flex items-center gap-3 px-5 h-6 bg-[#070b12] border-b border-slate-900 text-xs flex-shrink-0">
-        <span className="text-slate-700 font-mono flex-shrink-0">RAW ›</span>
-        <span className="font-mono text-cyan-600 truncate flex-1">{lastRaw}</span>
-        <span className="text-slate-700 flex-shrink-0">Errors <span className="text-amber-600">{errCount}</span></span>
       </div>
 
-      {/* ── MAIN ── */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* ── RAW STRIP ── */}
+      <div style={S.rawStrip}>
+        <span style={{color:"#1a2a40"}}>LAST RAW ›</span>
+        <span style={{color:"#14b8a6",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rawLine}</span>
+      </div>
 
-        {/* DASHBOARD */}
-        {tab==="dashboard"&&<>
+      {/* ── BODY ── */}
+      <div style={S.body}>
 
-          {/* Row 1 — 4 metric cards + health */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {METRICS.map(({label,val,unit,color,max,icon,status,sc:stc})=>(
-              <div key={label} className="bg-slate-900 rounded-2xl p-4 border border-slate-800 hover:border-slate-700 transition-all">
-                <div className="flex items-start justify-between mb-3">
-                  <span className="text-slate-400 text-sm font-medium leading-tight">{label}</span>
-                  <span className="text-2xl">{icon}</span>
+        {/* ── SIDEBAR ── */}
+        <div style={S.sidebar}>
+
+          {/* soil metrics */}
+          <div style={S.sideSection}>
+            <div style={S.sideSectionTitle}>Soil Metrics</div>
+            <div style={S.metricGrid}>
+              {METRICS.map(({label,val,unit,col,max,status,statCol}) => (
+                <div key={label} style={S.metricCard(col)}>
+                  <div style={S.metricLabel}>{label}</div>
+                  <div style={S.metricValue(col)}>{val ?? <span style={{color:"#1a2a40"}}>—</span>}</div>
+                  <div style={S.metricUnit}>{unit}</div>
+                  <div style={S.metricBar}>
+                    <div style={S.metricFill(col, val!=null ? Math.min(100, Math.abs(parseFloat(val))/max*100) : 0)}/>
+                  </div>
+                  <div style={S.metricStatus(statCol)}>{status}</div>
                 </div>
-                <div className="text-4xl font-bold leading-none mb-1" style={{color}}>
-                  {val!=null?val:<span className="text-slate-700 text-3xl">—</span>}
+              ))}
+            </div>
+          </div>
+
+          {/* health score */}
+          <div style={S.scoreRow}>
+            <ScoreArc score={soil?.score}/>
+            <div>
+              <div style={{fontSize:11,color:"#2d4060",marginBottom:4}}>Health Score</div>
+              <div style={{fontSize:26,fontWeight:700,color:scoreCol,fontFamily:"monospace",lineHeight:1}}>
+                {soil?.score ?? "—"}
+              </div>
+              <div style={{fontSize:11,color:scoreCol,fontWeight:600,marginTop:4}}>
+                {!soil?"Awaiting data":soil.score>=70?"Good condition":soil.score>=45?"Moderate":"Needs attention"}
+              </div>
+            </div>
+          </div>
+
+          {/* NPK */}
+          <div style={S.sideSection}>
+            <div style={S.sideSectionTitle}>NPK Estimate</div>
+            {NPK.map(({el,val,max,col}) => {
+              const pct = val!=null ? Math.min(100, val/max*100) : 0;
+              const lvl = val==null?"—":val<max*.25?"LOW":val<max*.6?"MED":"HIGH";
+              const lc  = lvl==="LOW"?"#ef4444":lvl==="HIGH"?"#22c55e":"#f59e0b";
+              return (
+                <div key={el} style={S.npkRow}>
+                  <span style={S.npkEl(col)}>{el}</span>
+                  <div style={S.npkTrack}><div style={S.npkFill(col,pct)}/></div>
+                  <span style={S.npkPpm(col)}>{val!=null?val+" ppm":"—"}</span>
+                  <span style={S.npkStatus(lc)}>{lvl}</span>
                 </div>
-                <div className="text-slate-600 text-xs mb-3">{unit}</div>
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-2">
-                  <div className="h-full rounded-full transition-all duration-500"
-                    style={{width:val!=null?Math.min(100,Math.abs(parseFloat(val))/max*100)+"%":"0%",background:`linear-gradient(90deg,${color}55,${color})`}}/>
+              );
+            })}
+            <div style={{fontSize:10,color:"#1a2a40",marginTop:4,lineHeight:1.6}}>
+              * Spectral proxy — verify with lab
+            </div>
+          </div>
+
+          {/* calibration */}
+          <div style={S.sideSection}>
+            <div style={S.sideSectionTitle}>Calibration</div>
+            <div style={S.calRow}>
+              <button style={S.calBtn(!!darkRef)} onClick={captureDark}>{darkRef?"✓ Dark":"Dark Ref"}</button>
+              <button style={S.calBtn(!!whiteRef)} onClick={captureWhite}>{whiteRef?"✓ White":"White Ref"}</button>
+            </div>
+          </div>
+
+          {/* log */}
+          <div style={S.logArea}>
+            {logs.length===0 && <div style={{color:"#1a2a40",padding:"8px 0",fontSize:11}}>Connect to start logging…</div>}
+            {logs.map((e,i)=>(
+              <div key={i} style={S.logLine}>
+                <span style={S.logTs}>{e.ts}</span>
+                <span style={{color:logColors[e.t]}}>{e.msg}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── MAIN CONTENT ── */}
+        <div style={S.main}>
+
+          {/* ── OVERVIEW TAB ── */}
+          {tab==="overview" && <>
+
+            {/* full spectrum bar */}
+            <div style={S.card}>
+              <div style={S.cardHead}>
+                <span style={S.cardTitle}>Full Spectrum — 18 channels · 410–940 nm</span>
+                <span style={S.cardSub}>avg ADC <b style={{color:"#4a6080",fontFamily:"monospace"}}>{reads>0?Math.round(adc.reduce((a,b)=>a+b)/18):0}</b></span>
+              </div>
+              <div style={{position:"relative",height:180}}>
+                <Bar
+                  data={specBar}
+                  options={specOpts}
+                  aria-label="Bar chart of 18 spectral channel ADC values from 410 to 940 nm"
+                  role="img"
+                />
+              </div>
+              {/* legend */}
+              <div style={{display:"flex",gap:20,marginTop:12,justifyContent:"center"}}>
+                {[["Visible (410–680nm)","#fb923c"],["Red-Edge (705nm)","#f43f5e"],["NIR (730–940nm)","#a78bfa"]].map(([l,c])=>(
+                  <span key={l} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#4a6080"}}>
+                    <span style={{width:12,height:8,borderRadius:2,background:c}}/>
+                    {l}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* trend + NIR highlights */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+
+              {/* selected channel trend */}
+              <div style={S.card}>
+                <div style={S.cardHead}>
+                  <span style={S.cardTitle}>Channel Trend</span>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{
+                      fontSize:12,padding:"2px 10px",borderRadius:6,fontWeight:700,
+                      background:CH[selCh].col+"22",color:CH[selCh].col,
+                    }}>
+                      {CH[selCh].nm} nm · {CH[selCh].r}
+                    </span>
+                    <span style={{fontSize:22,fontWeight:700,color:CH[selCh].col,fontFamily:"monospace"}}>{adc[selCh]}</span>
+                  </div>
                 </div>
-                <span className="text-xs font-bold" style={{color:stc}}>{status}</span>
+                <div style={{position:"relative",height:110}}>
+                  <Line data={trendLine} options={trendOpts} aria-label="Line chart of selected channel ADC values over time" role="img"/>
+                </div>
+                <div style={S.chPicker}>
+                  {CH.map((ch,i)=>(
+                    <button key={i} style={S.chPick(selCh===i,ch.col)} onClick={()=>setSelCh(i)}>{ch.nm}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 6 NIR channel cards */}
+              <div style={S.card}>
+                <div style={S.cardHead}>
+                  <span style={S.cardTitle}>NIR Channels — moisture sensitive</span>
+                  <span style={S.cardSub}>730–940 nm</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                  {[12,13,14,15,16,17].map(i=>{
+                    const ch=CH[i], v=adc[i], pct=Math.round(v/4095*100);
+                    return(
+                      <div key={i} style={S.chCard(selCh===i,ch.col)} onClick={()=>setSelCh(i)}>
+                        <div style={S.chHead}>
+                          <span style={S.chNm(ch.col)}>{ch.nm}<span style={S.chNmSub}> nm</span></span>
+                          <span style={S.chBadge(ch.col)}>NIR</span>
+                        </div>
+                        <Spark data={hist[i]} color={ch.col}/>
+                        <div style={S.chBarWrap}><div style={S.chBarFill(ch.col,pct)}/></div>
+                        <div style={S.chAdc(ch.col)}>{v}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </>}
+
+          {/* ── 18 CHANNELS TAB ── */}
+          {tab==="channels" && <>
+
+            {[
+              { label:"Visible Band", sub:"410–680 nm · 11 channels", indices:[0,1,2,3,4,5,6,7,8,9,10], cols:"repeat(6,1fr)" },
+              { label:"Red-Edge",     sub:"705 nm",                   indices:[11],                      cols:"repeat(6,1fr)" },
+              { label:"NIR Band",     sub:"730–940 nm · 6 channels",  indices:[12,13,14,15,16,17],        cols:"repeat(6,1fr)" },
+            ].map(({label,sub,indices,cols})=>(
+              <div key={label}>
+                <div style={S.bandHead}>
+                  <span style={S.bandTitle}>{label}</span>
+                  <span style={S.bandSub}>{sub}</span>
+                  <div style={S.bandLine}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:cols,gap:8,marginBottom:4}}>
+                  {indices.map(i=>{
+                    const ch=CH[i], v=adc[i], pct=Math.round(v/4095*100);
+                    return(
+                      <div key={i} style={S.chCard(selCh===i,ch.col)} onClick={()=>{setSelCh(i);setTab("overview");}}>
+                        <div style={S.chHead}>
+                          <span style={S.chNm(ch.col)}>{ch.nm}<span style={S.chNmSub}> nm</span></span>
+                          <span style={S.chBadge(ch.col)}>{ch.r}</span>
+                        </div>
+                        <Spark data={hist[i]} color={ch.col}/>
+                        <div style={S.chBarWrap}><div style={S.chBarFill(ch.col,pct)}/></div>
+                        <div style={S.chAdc(ch.col)}>{v}</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ))}
 
-            {/* Health Score */}
-            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800 flex flex-col items-center justify-center gap-2 md:col-span-1">
-              <span className="text-slate-400 text-sm font-medium">Health Score</span>
-              <Ring value={p?.score} max={100} color={sc} size={80}/>
-              <span className="text-sm font-bold" style={{color:sc}}>
-                {!p?"Waiting":p.score>=70?"Good":p.score>=45?"Moderate":"Poor"}
-              </span>
-            </div>
-          </div>
-
-          {/* Row 2 — spectrum + NPK */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="md:col-span-2 bg-slate-900 rounded-2xl p-4 border border-slate-800">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <span className="text-slate-200 font-semibold">Full Spectrum</span>
-                  <span className="text-slate-500 text-sm ml-2">18 channels · 410–940 nm</span>
-                </div>
-                <span className="text-slate-500 text-sm">avg <span className="text-slate-300 font-mono font-bold">{p?.avg??0}</span> ADC</span>
+            {/* summary table */}
+            <div style={S.card}>
+              <div style={S.cardHead}>
+                <span style={S.cardTitle}>All channels — summary table</span>
+                <span style={S.cardSub}>click row to view trend</span>
               </div>
-              <div style={{height:190}}><Bar data={specChart} options={specOpts}/></div>
-              <div className="flex gap-5 mt-3 justify-center">
-                {[{l:"Visible (VIS)",c:"#f87171"},{l:"Red-Edge",c:"#f43f5e"},{l:"Near-Infrared (NIR)",c:"#a78bfa"}].map(({l,c})=>(
-                  <div key={l} className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <span className="w-3 h-2 rounded" style={{background:c}}/>{l}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800 flex flex-col gap-4">
-              <span className="text-slate-200 font-semibold">NPK Estimate</span>
-              <NPKBar el="N" val={p?.N} max={350} color="#4ade80"/>
-              <NPKBar el="P" val={p?.P} max={160} color="#fb923c"/>
-              <NPKBar el="K" val={p?.K} max={280} color="#c084fc"/>
-              <div className="mt-auto text-xs text-slate-600 leading-5 border-t border-slate-800 pt-3">
-                Spectral proxy model — lab verification required before field application.
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={capDark} className={`py-2 rounded-lg text-xs font-bold border transition-all ${darkRef?"border-emerald-600 bg-emerald-950 text-emerald-400":"border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300"}`}>{darkRef?"✓ Dark set":"Dark ref"}</button>
-                <button onClick={capWhite} className={`py-2 rounded-lg text-xs font-bold border transition-all ${whiteRef?"border-emerald-600 bg-emerald-950 text-emerald-400":"border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300"}`}>{whiteRef?"✓ White set":"White ref"}</button>
-              </div>
-            </div>
-          </div>
-
-          {/* Row 3 — trend + NIR highlight */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <span className="text-slate-200 font-semibold">Channel Trend</span>
-                  <span className="inline-block ml-2 text-xs px-2 py-0.5 rounded-full font-bold" style={{background:h2r(CH[selCh].c,.15),color:CH[selCh].c}}>{CH[selCh].nm} nm · {CH[selCh].r}</span>
-                </div>
-                <span className="text-2xl font-bold font-mono" style={{color:CH[selCh].c}}>{adc[selCh]}</span>
-              </div>
-              <div style={{height:100}}><Line data={trendChart} options={trendOpts}/></div>
-              <div className="flex flex-wrap gap-1 mt-3">
-                {CH.map((ch,i)=>(
-                  <button key={i} onClick={()=>setSelCh(i)}
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded transition-all"
-                    style={selCh===i?{background:h2r(ch.c,.25),color:ch.c}:{color:"#475569"}}>
-                    {ch.nm}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="md:col-span-2 bg-slate-900 rounded-2xl p-4 border border-slate-800">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-slate-200 font-semibold">Key NIR Channels</span>
-                <span className="text-xs text-slate-500">730–940 nm · moisture sensitive</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {[12,13,14,15,16,17].map(i=>{
-                  const ch=CH[i],v=adc[i],pct=Math.round(v/4095*100);
-                  return(
-                    <div key={i} className="bg-slate-950 rounded-xl p-3 border border-slate-800 hover:border-slate-700 transition-all cursor-pointer"
-                      onClick={()=>setSelCh(i)}>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="font-bold text-sm" style={{color:ch.c}}>{ch.nm}<span className="text-[10px] font-normal text-slate-600"> nm</span></span>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{background:h2r(ch.c,.15),color:ch.c}}>NIR</span>
-                      </div>
-                      <Spark history={hist[i]} color={ch.c} height={40}/>
-                      <div className="flex items-center gap-2 mt-2">
-                        <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{width:pct+"%",background:ch.c}}/>
-                        </div>
-                        <span className="text-xs font-mono font-bold" style={{color:ch.c}}>{v}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </>}
-
-        {/* 18 CHANNELS TAB */}
-        {tab==="channels"&&<>
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-slate-200">All 18 Spectral Channels</h2>
-            <span className="text-sm text-slate-500">Each card shows last {HLEN} readings · click to focus</span>
-          </div>
-
-          {[
-            {label:"Visible Band",sub:"410–680 nm · 11 channels",indices:[0,1,2,3,4,5,6,7,8,9,10],cols:"grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11"},
-            {label:"Red-Edge",sub:"705 nm · vegetation stress indicator",indices:[11],cols:"grid-cols-2 sm:grid-cols-3"},
-            {label:"Near-Infrared Band",sub:"730–940 nm · 6 channels · moisture-sensitive",indices:[12,13,14,15,16,17],cols:"grid-cols-3 sm:grid-cols-4 lg:grid-cols-6"},
-          ].map(({label,sub,indices,cols})=>(
-            <div key={label}>
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-sm font-bold text-slate-300">{label}</span>
-                <span className="text-xs text-slate-600">{sub}</span>
-                <div className="flex-1 h-px bg-slate-800"/>
-              </div>
-              <div className={`grid ${cols} gap-2`} style={indices.length===1?{maxWidth:200}:{}}>
-                {indices.map(i=>(
-                  <ChCard key={i} ch={CH[i]} idx={i} val={adc[i]} hist={hist[i]}
-                    selected={selCh===i} onClick={()=>{setSelCh(i);setTab("dashboard");}}/>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {/* Summary table */}
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-semibold text-slate-300">Channel Summary Table</span>
-              <span className="text-xs text-slate-600">click row to select channel</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead>
-                  <tr className="border-b border-slate-800 text-slate-600 text-xs">
-                    <th className="text-left px-5 py-2.5">Channel</th>
-                    <th className="text-left px-3 py-2.5">Region</th>
-                    <th className="text-right px-3 py-2.5">ADC</th>
-                    <th className="px-4 py-2.5 w-44">Level</th>
-                    <th className="text-right px-5 py-2.5">% Full Scale</th>
+                  <tr style={{borderBottom:"1px solid #1a2a40"}}>
+                    {["Wavelength","Region","ADC Value","Level","% Full Scale"].map(h=>(
+                      <th key={h} style={{textAlign:h==="ADC Value"||h==="% Full Scale"?"right":"left",padding:"6px 8px",fontSize:10,color:"#2d4060",fontWeight:600}}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {CH.map((ch,i)=>{
-                    const v=adc[i],pct=Math.round(v/4095*100);
+                    const v=adc[i], pct=Math.round(v/4095*100);
                     return(
-                      <tr key={i} className={`border-b border-slate-800/40 hover:bg-slate-800/50 cursor-pointer transition-all ${selCh===i?"bg-slate-800/70":""}`}
-                        onClick={()=>{setSelCh(i);setTab("dashboard");}}>
-                        <td className="px-5 py-2.5"><span className="font-bold" style={{color:ch.c}}>{ch.nm} nm</span></td>
-                        <td className="px-3 py-2.5 text-slate-500 text-xs">{ch.r}</td>
-                        <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-200">{v}</td>
-                        <td className="px-4 py-2.5">
-                          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{width:pct+"%",background:ch.c}}/>
+                      <tr key={i}
+                        style={{borderBottom:"1px solid #0f1a2d",cursor:"pointer",background:selCh===i?"#0d1828":"transparent"}}
+                        onClick={()=>{setSelCh(i);setTab("overview");}}>
+                        <td style={{padding:"7px 8px"}}>
+                          <span style={{fontWeight:700,color:ch.col,fontFamily:"monospace"}}>{ch.nm} nm</span>
+                        </td>
+                        <td style={{padding:"7px 8px",fontSize:11,color:"#4a6080"}}>{ch.r}</td>
+                        <td style={{padding:"7px 8px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:"#d4e2f4"}}>{v}</td>
+                        <td style={{padding:"7px 8px",width:160}}>
+                          <div style={{height:6,background:"#1a2a40",borderRadius:3,overflow:"hidden"}}>
+                            <div style={{height:"100%",borderRadius:3,background:ch.col,width:pct+"%",transition:"width .3s"}}/>
                           </div>
                         </td>
-                        <td className="px-5 py-2.5 text-right text-xs font-mono font-bold" style={{color:ch.c}}>{pct}%</td>
+                        <td style={{padding:"7px 8px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:ch.col,fontSize:11}}>{pct}%</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          </div>
-        </>}
+          </>}
 
-        {/* LOG TAB */}
-        {tab==="log"&&(
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
-              <span className="font-semibold text-slate-300">Event Log</span>
-              <button onClick={()=>setLog([])} className="text-xs text-slate-500 hover:text-red-400 transition-all">Clear</button>
-            </div>
-            <div className="font-mono text-xs p-4 space-y-0.5 max-h-[72vh] overflow-y-auto">
-              {log.length===0&&<div className="text-slate-700 py-4 text-center">No events yet — connect to begin.</div>}
-              {log.map((e,i)=>(
-                <div key={i} className="flex gap-4 py-0.5 hover:bg-slate-800/40 px-2 rounded">
-                  <span className="text-slate-700 flex-shrink-0 w-20">{e.ts}</span>
-                  <span className={lc[e.type]}>{e.msg}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* STATUS BAR */}
-      <footer className="h-7 bg-slate-900 border-t border-slate-800 flex items-center px-5 gap-5 text-xs text-slate-600 flex-shrink-0">
-        <span>Port <b className={connected?"text-emerald-400":"text-slate-700"}>{connected?"open":"closed"}</b></span>
-        <span>Baud <b className="text-slate-500">115200</b></span>
-        <span>Reads <b className="text-slate-500">{readings}</b></span>
-        <span>Dark <b className={darkRef?"text-emerald-400":"text-slate-700"}>{darkRef?"✓":"unset"}</b></span>
-        <span>White <b className={whiteRef?"text-emerald-400":"text-slate-700"}>{whiteRef?"✓":"unset"}</b></span>
-        <span className="ml-auto text-slate-700">SoilSpec v2.0 · AS7265x · ATSAMD21G17D · 18-ch · 410–940 nm</span>
-      </footer>
+        </div>
+      </div>
     </div>
   );
 }
