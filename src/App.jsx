@@ -183,6 +183,8 @@ function ClassifyTab({adc,reads}){
     ...(clf?[{label:REF_META[clf.best].label+" (ref)",data:REFS[clf.best],borderColor:REF_META[clf.best].col,backgroundColor:REF_META[clf.best].col.replace(")",",0.06)").replace("rgb","rgba"),borderWidth:2,borderDash:[6,3],pointRadius:2,tension:.35,fill:false,order:2}]:[]),
   ]};
   const overOpts={responsive:true,maintainAspectRatio:false,animation:{duration:0},plugins:{legend:{display:true,position:"top",labels:{color:"#7b96b8",font:{size:11},boxWidth:14,padding:12}},tooltip:{callbacks:{label:ctx=>" "+ctx.dataset.label+": "+ctx.parsed.y+" ADC"}}},scales:{x:{ticks:{color:"#3d5c7a",font:{size:10,family:"monospace"}},grid:{color:"#0d1625"},border:{display:false}},y:{min:0,max:4095,ticks:{color:"#3d5c7a",font:{size:10},maxTicksLimit:6},grid:{color:"#111e33"},border:{display:false}}}};
+  const diffData={labels:CH.map(c=>c.nm+""),datasets:[{label:"Δ",data:diff,backgroundColor:diff.map(d=>d>0?"rgba(34,197,94,0.7)":"rgba(239,68,68,0.7)"),borderColor:diff.map(d=>d>0?"#22c55e":"#ef4444"),borderWidth:1.5,borderRadius:3}]};
+  const diffOpts={responsive:true,maintainAspectRatio:false,animation:{duration:0},plugins:{legend:{display:false},tooltip:{callbacks:{title:ctx=>CH[ctx[0].dataIndex].nm+" nm",label:ctx=>" Δ "+(ctx.parsed.y>0?"+":"")+ctx.parsed.y+" ADC"}}},scales:{x:{ticks:{color:"#3d5c7a",font:{size:10,family:"monospace"}},grid:{color:"#0d1625"},border:{display:false}},y:{ticks:{color:"#3d5c7a",font:{size:10},maxTicksLimit:6},grid:{color:"#111e33"},border:{display:false}}}};
   return(
     <div style={{flex:1,overflowY:"auto",background:"#080c18",padding:12,display:"flex",flexDirection:"column",gap:12}}>
 
@@ -255,6 +257,27 @@ function ClassifyTab({adc,reads}){
         </div>
       </div>
 
+      {/* ─ DIFFERENCE CHART ─ */}
+      {clf&&(
+        <div style={S.card}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div>
+              <span style={S.ct}>Difference — Live minus {REF_META[clf.best].label} reference</span>
+              <div style={{fontSize:10,color:"#2d4060",marginTop:2}}>
+                <span style={{color:"#22c55e"}}>Green = Live higher</span><span style={{margin:"0 8px",color:"#2d4060"}}>|</span><span style={{color:"#ef4444"}}>Red = Reference higher</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:14,fontSize:10}}>
+              <span>Max↑ <b style={{color:"#22c55e",fontFamily:"monospace"}}>{Math.max(...diff).toFixed(0)}</b></span>
+              <span>Max↓ <b style={{color:"#ef4444",fontFamily:"monospace"}}>{Math.min(...diff).toFixed(0)}</b></span>
+              <span>RMS <b style={{color:"#f59e0b",fontFamily:"monospace"}}>{Math.sqrt(diff.reduce((s,d)=>s+d*d,0)/18).toFixed(0)}</b></span>
+            </div>
+          </div>
+          <div style={{position:"relative",height:150}}>
+            <Bar data={diffData} options={diffOpts} role="img" aria-label="Difference bar chart"/>
+          </div>
+        </div>
+      )}
 
       {/* ─ CHANNEL TABLE ─ */}
       {clf&&(
