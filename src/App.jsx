@@ -34,6 +34,51 @@ const REFS = {
   water:      [1835,1231,2454,1208,1554,1838,1590,1857,1034, 314, 195,  79,1669, 469, 172, 126, 309, 928],
   fertiliser: [1541, 975,1893, 847, 884,1271,1270,1212, 853, 229, 157,  68,1242, 329, 123,  99, 203, 772],
 };
+
+
+function computeSmartNPK(adc, refs) {
+  if (!adc || adc.every(v => v === 0)) {
+    return { N: 0, P: 0, K: 0 };
+  }
+
+  const air = refs.air;
+  const water = refs.water;
+
+  const norm = adc.map((v, i) => v / (air[i] || 1));
+
+  const vis = norm.slice(0, 8);
+  const nir = norm.slice(12, 18);
+
+  const vis_avg = vis.reduce((a,b)=>a+b,0)/vis.length;
+  const nir_avg = nir.reduce((a,b)=>a+b,0)/nir.length;
+
+  let diff = 0;
+  for (let i = 0; i < 18; i++) {
+    diff += Math.abs(adc[i] - water[i]);
+  }
+  const variation = diff / 18;
+
+  if (vis_avg < 1.1 && nir_avg < 1.1) {
+    return { N: 5, P: 3, K: 3 };
+  }
+
+  if (variation < 80) {
+    return { N: 10, P: 5, K: 5 };
+  }
+
+  const concentration = variation / 200;
+
+  let N = 120 + concentration * 180;
+  let P = 40  + concentration * 90;
+  let K = 70  + concentration * 120;
+
+  return {
+    N: Math.round(Math.min(N, 400)),
+    P: Math.round(Math.min(P, 200)),
+    K: Math.round(Math.min(K, 300))
+  };
+}
+
 const REF_META = {
   air:        { label:"Air",        emoji:"🌬",  desc:"Empty / Air baseline",   col:"#94a3b8", hint:"No liquid present. Sensor reading ambient environment." },
   water:      { label:"Water",      emoji:"💧",  desc:"Plain Water",             col:"#38bdf8", hint:"Pure water detected. High VIS reflectance, low NIR absorption." },
@@ -51,9 +96,10 @@ function calcSoil(v) {
   const ec=Math.max(0.1,Math.min(6,((v[15]-v[17])/(v[15]+v[17]+1))*3+1.8));
   const ndmi=(nir-vis)/(nir+vis+1);
   const nirRatio=nir/(vis+1);
-  const N=Math.round(Math.max(20,Math.min(350,200-(moisture*0.7)+(om*14))));
-  const P=Math.round(Math.max(10,Math.min(160,(v[8]/4095)*100+30)));
-  const K=Math.round(Math.max(30,Math.min(280,(v[10]/4095)*110+80)));
+const npk = computeSmartNPK(v, REFS);
+const N = npk.N;
+const P = npk.P;
+const K = npk.K;
   const score=Math.round(Math.min(98,Math.max(8,(om/10)*35+(1-Math.abs(moisture-42)/42)*30+(N/350)*20+(K/280)*15)));
   let soilType="Mixed Mineral",soilConf=60;
   if(nirRatio>2.5&&om>4){soilType="Loamy / Rich";soilConf=82;}
