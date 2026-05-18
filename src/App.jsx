@@ -31,33 +31,6 @@ const rgba = (h,a) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5
 // known reference spectra from your actual measurements
 const REFS = {
 <<<<<<< HEAD
-
-  air: [
-    1234,941,2005,953,1200,1356,1392,1495,
-    860,263,181,74,1222,369,131,98,238,808
-  ],
-
-  nitrogen: [
-    410,270,635,380,572,773,1105,1314,
-    880,301,245,69,1239,423,161,119,296,1295
-  ],
-
-  phosphorus: [
-    410,261,615,338,513,649,666,776,
-    565,182,183,60,752,267,112,83,191,816
-  ],
-
-  potassium: [
-    166,96,218,106,132,159,188,197,
-    150,52,64,44,162,91,32,29,41,171
-  ],
-
-  NPK: [
-    1376,703,1386,552,434,336,506,1021,
-    1680,366,288,80,1782,442,169,118,267,992
-  ]
-=======
-<<<<<<< HEAD
   air:        [1234,941,2005,953,1199,1355,1391,1495,858,263,181,74,1222,369,131,98,238,808],
   nitrogen:   [410,261,615,338,513,649,666,776,562,182,183,60,752,267,112,83,191,816],
   phosphorus: [166,96,218,106,132,159,188,197,150,52,64,44,162,91,32,29,41,171],
@@ -67,47 +40,8 @@ const REFS = {
 const BASELINES = {
   water: [410,270,634,380,572,773,1105,1314,872,301,245,69,1239,422,161,119,296,1295],
   air:   [1234,941,2005,953,1199,1355,1391,1495,858,263,181,74,1222,369,131,98,238,808],
->>>>>>> f5ba0a6159a6e26ba4855711abb5f76892f652cb
 };
-
 const REF_META = {
-<<<<<<< HEAD
-
-  air: {
-    label:"Air",
-    emoji:"🌬",
-    desc:"Ambient baseline",
-    col:"#94a3b8"
-  },
-
-  nitrogen: {
-    label:"Nitrogen",
-    emoji:"🟢",
-    desc:"Nitrogen fertilizer",
-    col:"#22c55e"
-  },
-
-  phosphorus: {
-    label:"Phosphorus",
-    emoji:"🟠",
-    desc:"Phosphorus fertilizer",
-    col:"#f97316"
-  },
-
-  potassium: {
-    label:"Potassium",
-    emoji:"🟣",
-    desc:"Potassium fertilizer",
-    col:"#a855f7"
-  },
-
-  NPK: {
-    label:"Mixed NPK",
-    emoji:"🌿",
-    desc:"Combined fertilizer",
-    col:"#eab308"
-  }
-=======
   air: {
     label: "Air",
     emoji: "🌬",
@@ -170,7 +104,6 @@ NPK: [
 1680,366,288,80,1782,442,169,118,267,992
 ]
 
->>>>>>> f5ba0a6159a6e26ba4855711abb5f76892f652cb
 };
 const REF_META = {
 
@@ -228,91 +161,6 @@ function cosineSimilarity(a, b) {
 // at 485-585nm compared to pure water. More suppression = more nutrients.
 // Air → no liquid → NPK = 0. Water → no ions → NPK trace only.
 // Fertiliser → suppressed VIS 485-585nm → HIGH NPK, scales with concentration.
-<<<<<<< HEAD
-function computeSmartNPK(adc, refs) {
-
-  if (!adc || adc.every(v => v === 0)) {
-    return {
-      N:0,
-      P:0,
-      K:0,
-      detected:"air",
-      confidence:0
-    };
-  }
-
-  const scores = {
-
-    air:
-      cosineSim(adc, refs.air),
-
-    nitrogen:
-      cosineSim(adc, refs.nitrogen),
-
-    phosphorus:
-      cosineSim(adc, refs.phosphorus),
-
-    potassium:
-      cosineSim(adc, refs.potassium),
-
-    NPK:
-      cosineSim(adc, refs.NPK),
-  };
-
-  let detected = "air";
-  let best = 0;
-
-  for (const k in scores) {
-    if (scores[k] > best) {
-      best = scores[k];
-      detected = k;
-    }
-  }
-
-  const intensity =
-    adc.reduce((a,b)=>a+b,0) / adc.length;
-
-  let N=0,P=0,K=0;
-
-  switch(detected){
-
-    case "nitrogen":
-      N=Math.round(220+intensity*0.08);
-      P=Math.round(20+intensity*0.01);
-      K=Math.round(25+intensity*0.01);
-      break;
-
-    case "phosphorus":
-      N=Math.round(20+intensity*0.01);
-      P=Math.round(210+intensity*0.06);
-      K=Math.round(20+intensity*0.01);
-      break;
-
-    case "potassium":
-      N=Math.round(15+intensity*0.005);
-      P=Math.round(20+intensity*0.005);
-      K=Math.round(260+intensity*0.08);
-      break;
-
-    case "NPK":
-      N=Math.round(160+intensity*0.05);
-      P=Math.round(150+intensity*0.05);
-      K=Math.round(180+intensity*0.06);
-      break;
-
-    default:
-      N=5;
-      P=3;
-      K=4;
-  }
-
-  return {
-    N,
-    P,
-    K,
-    detected: npk.detected,
-confidence: npk.confidence,
-=======
 function computeSmartNPK(adc) {
   if (!adc || adc.every(v => v === 0)) return { N: 0, P: 0, K: 0 };
 
@@ -391,7 +239,6 @@ function classifyADC(v) {
     best,
     confidence: Math.round(max),
     scores
->>>>>>> f5ba0a6159a6e26ba4855711abb5f76892f652cb
   };
 }
   let best = "air";
@@ -472,13 +319,6 @@ function calcSoil(v) {
   const ndmi=(nir-vis)/(nir+vis+1);
   const nirRatio=nir/(vis+1);
 <<<<<<< HEAD
-  const npk=computeSmartNPK(v,REFS);
-
-const N=npk.N;
-const P=npk.P;
-const K=npk.K;
-=======
-<<<<<<< HEAD
   const {N,P,K}=computeSmartNPK(v);
 =======
  const cls = classifyADC(v);
@@ -524,7 +364,6 @@ if(cls){
   }
 }
 >>>>>>> b59fc65c28346d46b7d52318755e493dcad3fd6d
->>>>>>> f5ba0a6159a6e26ba4855711abb5f76892f652cb
   const score=Math.round(Math.min(98,Math.max(8,(om/10)*35+(1-Math.abs(moisture-42)/42)*30+(N/350)*20+(K/280)*15)));
   let soilType="Mixed Mineral",soilConf=60;
   if(nirRatio>2.5&&om>4){soilType="Loamy / Rich";soilConf=82;}
