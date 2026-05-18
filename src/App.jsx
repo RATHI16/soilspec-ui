@@ -30,14 +30,52 @@ const rgba = (h,a) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5
 
 // known reference spectra from your actual measurements
 const REFS = {
-  air:        [1479,1058,2091, 985,1213,1409,1326,1473, 940, 248, 165,  70,1165, 373, 132, 100, 220, 718],
-  water:      [1835,1231,2454,1208,1554,1838,1590,1857,1034, 314, 195,  79,1669, 469, 172, 126, 309, 928],
-  fertiliser: [1541, 975,1893, 847, 884,1271,1270,1212, 853, 229, 157,  68,1242, 329, 123,  99, 203, 772],
+  air:        [1234,941,2005,953,1199,1355,1391,1495,858,263,181,74,1222,369,131,98,238,808],
+  nitrogen:   [410,261,615,338,513,649,666,776,562,182,183,60,752,267,112,83,191,816],
+  phosphorus: [166,96,218,106,132,159,188,197,150,52,64,44,162,91,32,29,41,171],
+  potassium:  [1376,703,1387,552,434,336,506,1021,1676,366,288,80,1782,442,169,118,267,992],
+  NPK:        [1541,975,1893,847,884,1271,1270,1212,853,229,157,68,1242,329,123,99,203,772],
+};
+const BASELINES = {
+  water: [410,270,634,380,572,773,1105,1314,872,301,245,69,1239,422,161,119,296,1295],
+  air:   [1234,941,2005,953,1199,1355,1391,1495,858,263,181,74,1222,369,131,98,238,808],
 };
 const REF_META = {
-  air:        { label:"Air",        emoji:"🌬",  desc:"Empty / Air baseline",   col:"#94a3b8", hint:"No liquid present. Sensor reading ambient environment." },
-  water:      { label:"Water",      emoji:"💧",  desc:"Plain Water",             col:"#38bdf8", hint:"Pure water detected. High VIS reflectance, low NIR absorption." },
-  fertiliser: { label:"Fertiliser", emoji:"🌿",  desc:"Fertiliser + Water",     col:"#f59e0b", hint:"Dissolved nutrients detected. Suppressed VIS at 485-585 nm band." },
+  air: {
+    label: "Air",
+    emoji: "🌬",
+    desc: "Ambient empty-path baseline",
+    col: "#94a3b8",
+    hint: "No liquid or nutrient sample is present. This is the empty-air signature."
+  },
+  nitrogen: {
+    label: "Nitrogen",
+    emoji: "🟢",
+    desc: "Nitrogen-rich sample",
+    col: "#22c55e",
+    hint: "High nitrogen signature in the green/VIS band. Expect strong N content."
+  },
+  phosphorus: {
+    label: "Phosphorus",
+    emoji: "🟠",
+    desc: "Phosphorus-rich sample",
+    col: "#f97316",
+    hint: "Phosphorus presence is visible as a distinct VIS suppression pattern."
+  },
+  potassium: {
+    label: "Potassium",
+    emoji: "🟣",
+    desc: "Potassium-rich sample",
+    col: "#a855f7",
+    hint: "Potassium shows a strong NIR signature and a unique red-edge profile."
+  },
+  NPK: {
+    label: "Mixed NPK",
+    emoji: "🌿",
+    desc: "Balanced NPK mixture",
+    col: "#eab308",
+    hint: "Combined NPK fertilizer signature across VIS and NIR bands."
+  },
 };
 function cosineSim(a,b){const dot=a.reduce((s,v,i)=>s+v*b[i],0);const na=Math.sqrt(a.reduce((s,v)=>s+v*v,0));const nb=Math.sqrt(b.reduce((s,v)=>s+v*v,0));return na===0||nb===0?0:dot/(na*nb);}
 function classifyADC(adc){if(!adc||adc.every(v=>v===0))return null;const scores=Object.fromEntries(Object.entries(REFS).map(([k,ref])=>[k,Math.round(cosineSim(adc,ref)*10000)/100]));const best=Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0];const diff=Math.max(...Object.values(scores))-Object.values(scores).sort((a,b)=>a-b)[1];const confidence=Math.round(Math.min(99,diff*8));return{best,scores,confidence};}
@@ -48,49 +86,51 @@ function classifyADC(adc){if(!adc||adc.every(v=>v===0))return null;const scores=
 // at 485-585nm compared to pure water. More suppression = more nutrients.
 // Air → no liquid → NPK = 0. Water → no ions → NPK trace only.
 // Fertiliser → suppressed VIS 485-585nm → HIGH NPK, scales with concentration.
-function computeSmartNPK(adc, refs) {
+function computeSmartNPK(adc) {
   if (!adc || adc.every(v => v === 0)) return { N: 0, P: 0, K: 0 };
 
-  const water = refs.water;
-  const air   = refs.air;
-  const fert  = refs.fertiliser;
+  const water = BASELINES.water;
+  const sim = (key) => cosineSim(adc, REFS[key]);
+  const simWater = cosineSim(adc, water);
+  const calcFactor = (key) => {
+    const value = sim(key) - simWater;
+    return Math.max(0, Math.min(1, value / (1 - simWater || 1)));
+  };
 
-  // Cosine similarity to each reference
-  const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
-  const mag=(a)=>Math.sqrt(a.reduce((s,v)=>s+v*v,0));
-  const cos=(a,b)=>{const m=mag(a)*mag(b);return m===0?0:dot(a,b)/m;};
+  const nFactor = calcFactor("nitrogen");
+  const pFactor = calcFactor("phosphorus");
+  const kFactor = calcFactor("potassium");
+  const npkFactor = calcFactor("NPK");
 
-  const simAir   = cos(adc, air);
-  const simWater = cos(adc, water);
-  const simFert  = cos(adc, fert);
+  const intensity = adc.reduce((sum, v) => sum + v, 0) / adc.length;
+  const waterIntensity = water.reduce((sum, v) => sum + v, 0) / water.length;
+  const intensityScale = Math.max(0, Math.min(1.2, (intensity / waterIntensity - 0.85) / 0.35));
 
-  // If most similar to air → sensor reading empty space → NPK = 0
-  if (simAir >= simWater && simAir >= simFert) {
+  const N = Math.round(Math.max(0, Math.min(350,
+    10 + nFactor * 260 + npkFactor * 120 + pFactor * 18 + kFactor * 12 + intensityScale * 70
+  )));
+  const P = Math.round(Math.max(0, Math.min(160,
+    5 + pFactor * 140 + npkFactor * 80 + nFactor * 14 + kFactor * 12 + intensityScale * 45
+  )));
+  const K = Math.round(Math.max(0, Math.min(280,
+    10 + kFactor * 220 + npkFactor * 110 + nFactor * 14 + pFactor * 12 + intensityScale * 55
+  )));
+
+  const cls = classifyADC(adc);
+  if (!cls || cls.best === "air") {
     return { N: 0, P: 0, K: 0 };
   }
 
-  // If most similar to plain water → no dissolved ions → trace NPK only
-  if (simWater >= simFert) {
-    return { N: 8, P: 4, K: 6 };
+  if (cls.best === "nitrogen") {
+    return { N, P: Math.round(P * 0.35), K: Math.round(K * 0.28) };
   }
-
-  // Fertiliser detected → estimate concentration from VIS suppression
-  // Channels 3-7 = 485,510,535,560,585 nm — the ion absorption band
-  const keyIdx = [3, 4, 5, 6, 7];
-  let suppSum = 0;
-  for (const i of keyIdx) {
-    const s = water[i] > 0 ? Math.max(0, (water[i] - adc[i]) / water[i]) : 0;
-    suppSum += s;
+  if (cls.best === "phosphorus") {
+    return { N: Math.round(N * 0.28), P, K: Math.round(K * 0.32) };
   }
-  const avgSupp = suppSum / keyIdx.length;
-  // avgSupp ~0.35-0.43 = 1 spoon, ~0.45-0.55 = 2 spoons, 0.55+ = concentrated
-  const conc = Math.min(1.0, Math.max(0, avgSupp / 0.55));
-
-  return {
-    N: Math.round(Math.max(80,  Math.min(400, 80  + conc * 320))),
-    P: Math.round(Math.max(30,  Math.min(200, 30  + conc * 170))),
-    K: Math.round(Math.max(60,  Math.min(300, 60  + conc * 240))),
-  };
+  if (cls.best === "potassium") {
+    return { N: Math.round(N * 0.32), P: Math.round(P * 0.30), K };
+  }
+  return { N, P, K };
 }
 
 function calcSoil(v) {
@@ -102,7 +142,7 @@ function calcSoil(v) {
   const ec=Math.max(0.1,Math.min(6,((v[15]-v[17])/(v[15]+v[17]+1))*3+1.8));
   const ndmi=(nir-vis)/(nir+vis+1);
   const nirRatio=nir/(vis+1);
-  const {N,P,K}=computeSmartNPK(v,REFS);
+  const {N,P,K}=computeSmartNPK(v);
   const score=Math.round(Math.min(98,Math.max(8,(om/10)*35+(1-Math.abs(moisture-42)/42)*30+(N/350)*20+(K/280)*15)));
   let soilType="Mixed Mineral",soilConf=60;
   if(nirRatio>2.5&&om>4){soilType="Loamy / Rich";soilConf=82;}
