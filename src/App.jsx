@@ -30,7 +30,6 @@ const rgba = (h,a) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5
 
 // known reference spectra from your actual measurements
 const REFS = {
-<<<<<<< HEAD
   air:        [1234,941,2005,953,1199,1355,1391,1495,858,263,181,74,1222,369,131,98,238,808],
   nitrogen:   [410,261,615,338,513,649,666,776,562,182,183,60,752,267,112,83,191,816],
   phosphorus: [166,96,218,106,132,159,188,197,150,52,64,44,162,91,32,29,41,171],
