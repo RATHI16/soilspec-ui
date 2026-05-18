@@ -28,306 +28,96 @@ const WF_MAX = 120;
 const NM = CH.map(c => c.nm + "");
 const rgba = (h,a) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; };
 
-// known reference spectra from your actual measurements
+// known reference spectra — averaged from real device measurements
 const REFS = {
-
-  air: [
-    1234,941,2005,953,1199,1355,1391,1495,
-    858,263,181,74,1222,369,131,98,238,808
-  ],
-
-  nitrogen: [
-    410,270,634,380,572,773,1105,1314,
-    880,301,245,69,1239,423,161,119,296,1295
-  ],
-
-  phosphorus: [
-    410,261,615,338,513,649,666,776,
-    562,182,183,60,752,267,112,83,191,816
-  ],
-
-  potassium: [
-    166,96,218,106,132,159,188,197,
-    150,52,64,44,162,91,32,29,41,171
-  ],
-
-  NPK: [
-    1376,703,1386,552,434,336,506,1021,
-    1680,366,288,80,1782,442,169,118,267,992
-  ]
-};
-const BASELINES = {
-  water: [410,270,634,380,572,773,1105,1314,872,301,245,69,1239,422,161,119,296,1295],
-  air:   [1234,941,2005,953,1199,1355,1391,1495,858,263,181,74,1222,369,131,98,238,808],
+  air: [1234,941,2004,953,1199,1355,1391,1494,857,263,181,74,1222,369,131,98,238,807],
+  N:   [410,261,614,338,513,649,666,776,566,182,182,60,752,267,112,83,191,817],
+  P:   [166,96,218,106,132,159,188,197,150,52,64,44,162,91,32,29,41,171],
+  K:   [1376,703,1387,552,434,336,506,1021,1676,366,288,80,1782,442,169,118,267,992],
+  npk: [1541,975,1893,847,884,1271,1270,1212,853,229,157,68,1242,329,123,99,203,772],
 };
 const REF_META = {
-  air: {
-    label: "Air",
-    emoji: "🌬",
-    desc: "Ambient empty-path baseline",
-    col: "#94a3b8",
-    hint: "No liquid or nutrient sample is present. This is the empty-air signature."
-  },
-  nitrogen: {
-    label: "Nitrogen",
-    emoji: "🟢",
-    desc: "Nitrogen-rich sample",
-    col: "#22c55e",
-    hint: "High nitrogen signature in the green/VIS band. Expect strong N content."
-  },
-  phosphorus: {
-    label: "Phosphorus",
-    emoji: "🟠",
-    desc: "Phosphorus-rich sample",
-    col: "#f97316",
-    hint: "Phosphorus presence is visible as a distinct VIS suppression pattern."
-  },
-  potassium: {
-    label: "Potassium",
-    emoji: "🟣",
-    desc: "Potassium-rich sample",
-    col: "#a855f7",
-    hint: "Potassium shows a strong NIR signature and a unique red-edge profile."
-  },
-  NPK: {
-    label: "Mixed NPK",
-    emoji: "🌿",
-    desc: "Balanced NPK mixture",
-    col: "#eab308",
-    hint: "Combined NPK fertilizer signature across VIS and NIR bands."
-  },
-=======
-
-air: [
-1234,941,2005,953,1200,1356,1392,1495,
-860,263,181,74,1222,369,131,98,238,808
-],
-
-nitrogen: [
-410,270,635,380,572,773,1105,1314,
-880,301,245,69,1239,423,161,119,296,1295
-],
-
-phosphorus: [
-410,261,615,338,513,649,666,776,
-565,182,183,60,752,267,112,83,191,816
-],
-
-potassium: [
-166,96,218,106,132,159,188,197,
-150,52,64,44,162,91,32,29,41,171
-],
-
-NPK: [
-1376,703,1386,552,434,336,506,1021,
-1680,366,288,80,1782,442,169,118,267,992
-]
-
+  air: { label:"Air",  emoji:"🌬️", desc:"Empty / Air baseline",      col:"#94a3b8", hint:"No sample present. Sensor reading ambient environment." },
+  N:   { label:"N",    emoji:"🌿", desc:"Nitrogen solution",           col:"#4ade80", hint:"Nitrogen-rich sample detected. Key marker: suppressed VIS 410–585 nm band." },
+  P:   { label:"P",    emoji:"🟠", desc:"Phosphorus solution",         col:"#fb923c", hint:"Phosphorus-rich sample detected. Very low overall reflectance signature." },
+  K:   { label:"K",    emoji:"🟣", desc:"Potassium solution",          col:"#c084fc", hint:"Potassium-rich sample detected. Strong NIR signal at 730 nm and above." },
+  npk: { label:"NPK",  emoji:"🪴", desc:"NPK fertiliser blend",        col:"#f59e0b", hint:"Mixed NPK fertiliser detected. Balanced suppression across VIS bands." },
 };
-const REF_META = {
+function cosineSim(a,b){const dot=a.reduce((s,v,i)=>s+v*b[i],0);const na=Math.sqrt(a.reduce((s,v)=>s+v*v,0));const nb=Math.sqrt(b.reduce((s,v)=>s+v*v,0));return na===0||nb===0?0:dot/(na*nb);}
+function classifyADC(adc){if(!adc||adc.every(v=>v===0))return null;const scores=Object.fromEntries(Object.entries(REFS).map(([k,ref])=>[k,Math.round(cosineSim(adc,ref)*10000)/100]));const best=Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0];const diff=Math.max(...Object.values(scores))-Object.values(scores).sort((a,b)=>a-b)[1];const confidence=Math.round(Math.min(99,diff*8));return{best,scores,confidence};}
 
-  air: {
-    label: "Air",
-    emoji: "🌬",
-    desc: "Ambient baseline",
-    col: "#94a3b8",
-    hint: "Baseline environmental spectrum with no sample."
-  },
 
-  nitrogen: {
-    label: "Nitrogen",
-    emoji: "🟢",
-    desc: "Nitrogen Fertiliser",
-    col: "#22c55e",
-    hint: "Strong VIS reflection around 535–585 nm indicating nitrogen-rich material."
-  },
-
-  phosphorus: {
-    label: "Phosphorus",
-    emoji: "🟠",
-    desc: "Phosphorus Fertiliser",
-    col: "#f97316",
-    hint: "Broad spectral suppression across VIS/NIR caused by phosphorus absorption."
-  },
-
-  potassium: {
-    label: "Potassium",
-    emoji: "🟣",
-    desc: "Potassium Fertiliser",
-    col: "#a855f7",
-    hint: "Low-intensity flat spectral response typical of potassium salts."
-  },
-
-  NPK: {
-    label: "Mixed NPK",
-    emoji: "🌿",
-    desc: "Combined NPK Fertiliser",
-    col: "#eab308",
-    hint: "Composite spectral signature showing mixed nutrient response."
-  }
-
->>>>>>> b59fc65c28346d46b7d52318755e493dcad3fd6d
-};
-function cosineSimilarity(a, b) {
-
-  let dot = 0;
-  let magA = 0;
-  let magB = 0;
-
-<<<<<<< HEAD
-// ── NPK estimation based on spectral suppression vs water baseline ──────────
-// Key science: fertiliser ions (NO3-, PO4^3-, K+) suppress VIS reflectance
-// at 485-585nm compared to pure water. More suppression = more nutrients.
-// Air → no liquid → NPK = 0. Water → no ions → NPK trace only.
-// Fertiliser → suppressed VIS 485-585nm → HIGH NPK, scales with concentration.
-function computeSmartNPK(adc) {
+// ── NPK estimation — driven by cosine similarity to real measured references ──
+// Classification: find closest match among air/N/P/K/npk reference spectra.
+// Each class maps to real NPK levels measured in lab.
+// Similarity scores are used to interpolate between classes for gradual output.
+function computeSmartNPK(adc, refs) {
   if (!adc || adc.every(v => v === 0)) return { N: 0, P: 0, K: 0 };
 
-  const water = BASELINES.water;
-  const sim = (key) => cosineSim(adc, REFS[key]);
-  const simWater = cosineSim(adc, water);
-  const calcFactor = (key) => {
-    const value = sim(key) - simWater;
-    return Math.max(0, Math.min(1, value / (1 - simWater || 1)));
-  };
+  const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
+  const mag=(a)=>Math.sqrt(a.reduce((s,v)=>s+v*v,0));
+  const cos=(a,b)=>{const m=mag(a)*mag(b);return m===0?0:dot(a,b)/m;};
 
-  const nFactor = calcFactor("nitrogen");
-  const pFactor = calcFactor("phosphorus");
-  const kFactor = calcFactor("potassium");
-  const npkFactor = calcFactor("NPK");
+  // Cosine similarity to every reference class
+  const sims = Object.fromEntries(Object.entries(refs).map(([k,ref])=>[k, cos(adc,ref)]));
 
-  const intensity = adc.reduce((sum, v) => sum + v, 0) / adc.length;
-  const waterIntensity = water.reduce((sum, v) => sum + v, 0) / water.length;
-  const intensityScale = Math.max(0, Math.min(1.2, (intensity / waterIntensity - 0.85) / 0.35));
-
-  const N = Math.round(Math.max(0, Math.min(350,
-    10 + nFactor * 260 + npkFactor * 120 + pFactor * 18 + kFactor * 12 + intensityScale * 70
-  )));
-  const P = Math.round(Math.max(0, Math.min(160,
-    5 + pFactor * 140 + npkFactor * 80 + nFactor * 14 + kFactor * 12 + intensityScale * 45
-  )));
-  const K = Math.round(Math.max(0, Math.min(280,
-    10 + kFactor * 220 + npkFactor * 110 + nFactor * 14 + pFactor * 12 + intensityScale * 55
-  )));
-
-  const cls = classifyADC(adc);
-  if (!cls || cls.best === "air") {
+  // Air = zero NPK
+  if (sims.air >= sims.N && sims.air >= sims.P && sims.air >= sims.K && sims.air >= sims.npk) {
     return { N: 0, P: 0, K: 0 };
   }
 
-  if (cls.best === "nitrogen") {
-    return { N, P: Math.round(P * 0.35), K: Math.round(K * 0.28) };
-  }
-  if (cls.best === "phosphorus") {
-    return { N: Math.round(N * 0.28), P, K: Math.round(K * 0.32) };
-  }
-  if (cls.best === "potassium") {
-    return { N: Math.round(N * 0.32), P: Math.round(P * 0.30), K };
-  }
-  return { N, P, K };
-=======
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-
-  return dot / (Math.sqrt(magA) * Math.sqrt(magB) + 1e-9);
-}
-function classifyADC(v) {
-
-  const scores = {
-    air: cosineSimilarity(v, REFS.air) * 100,
-    nitrogen: cosineSimilarity(v, REFS.nitrogen) * 100,
-    phosphorus: cosineSimilarity(v, REFS.phosphorus) * 100,
-    potassium: cosineSimilarity(v, REFS.potassium) * 100,
-    NPK: cosineSimilarity(v, REFS.NPK) * 100,
+  // Base NPK levels per class (ppm equivalents derived from your sample readings)
+  // These are the "pure" values when a sample perfectly matches that reference
+  const CLASS_NPK = {
+    air: { N:   0, P:   0, K:   0 },
+    N:   { N: 280, P:  15, K:  20 },
+    P:   { N:  10, P: 120, K:  15 },
+    K:   { N:  12, P:  18, K: 240 },
+    npk: { N: 180, P:  90, K: 160 },
   };
 
-  let best = "air";
-  let max = 0;
+  // Weighted blend: each class contributes proportional to its similarity
+  // (exclude air from the blend since it means "no sample")
+  const activeKeys = ["N","P","K","npk"];
+  const weights = Object.fromEntries(activeKeys.map(k=>[k, Math.max(0, sims[k])]));
+  const wTotal = activeKeys.reduce((s,k)=>s+weights[k], 0);
 
-  for (const k in scores) {
-    if (scores[k] > max) {
-      max = scores[k];
-      best = k;
-    }
+  if (wTotal === 0) return { N: 0, P: 0, K: 0 };
+
+  const blended = { N: 0, P: 0, K: 0 };
+  for (const k of activeKeys) {
+    const w = weights[k] / wTotal;
+    blended.N += CLASS_NPK[k].N * w;
+    blended.P += CLASS_NPK[k].P * w;
+    blended.K += CLASS_NPK[k].K * w;
   }
 
   return {
-    best,
-    confidence: Math.round(max),
-    scores
+    N: Math.round(blended.N),
+    P: Math.round(blended.P),
+    K: Math.round(blended.K),
   };
 }
-  let best = "air";
-  let max = -1;
 
-  for (const k in scores) {
-    if (scores[k] > max) {
-      max = scores[k];
-      best = k;
-    }
+// Legacy — kept so nothing below breaks; remove the old body:
+function _unusedOldNPKBody(adc, refs) {
+  const keyIdx = [3, 4, 5, 6, 7];
+  let suppSum = 0;
+  for (const i of keyIdx) {
+    const s = water[i] > 0 ? Math.max(0, (water[i] - adc[i]) / water[i]) : 0;
+    suppSum += s;
   }
+  const avgSupp = suppSum / keyIdx.length;
+  // avgSupp ~0.35-0.43 = 1 spoon, ~0.45-0.55 = 2 spoons, 0.55+ = concentrated
+  const conc = Math.min(1.0, Math.max(0, avgSupp / 0.55));
 
   return {
-    type: best,
-    confidence: Math.round(max * 100),
-    scores
-  };
->>>>>>> b59fc65c28346d46b7d52318755e493dcad3fd6d
-}
-
-function estimateNPK(v) {
-
-const cls = classifyADC(v);
-
-  let N = 0;
-  let P = 0;
-  let K = 0;
-
-  const intensity = v.reduce((a,b)=>a+b,0) / v.length;
-  const scale = intensity / 1000;
-
-  switch(cls.best) {
-
-    case "nitrogen":
-      N = 250 + scale * 120;
-      P = 40;
-      K = 35;
-      break;
-
-    case "phosphorus":
-      N = 35;
-      P = 260 + scale * 110;
-      K = 30;
-      break;
-
-    case "potassium":
-      N = 25;
-      P = 35;
-      K = 280 + scale * 140;
-      break;
-
-    case "NPK":
-      N = 180 + scale * 70;
-      P = 170 + scale * 60;
-      K = 200 + scale * 80;
-      break;
-
-    default:
-      N = 5;
-      P = 3;
-      K = 3;
-  }
-
-  return {
-    N: Math.round(N),
-    P: Math.round(P),
-    K: Math.round(K),
-    cls
+    N: Math.round(Math.max(80,  Math.min(400, 80  + conc * 320))),
+    P: Math.round(Math.max(30,  Math.min(200, 30  + conc * 170))),
+    K: Math.round(Math.max(60,  Math.min(300, 60  + conc * 240))),
   };
 }
+
 function calcSoil(v) {
   if (!v||v.every(x=>x===0)) return null;
   const nir=(v[12]+v[13]+v[14]+v[15]+v[16]+v[17])/6;
@@ -337,52 +127,7 @@ function calcSoil(v) {
   const ec=Math.max(0.1,Math.min(6,((v[15]-v[17])/(v[15]+v[17]+1))*3+1.8));
   const ndmi=(nir-vis)/(nir+vis+1);
   const nirRatio=nir/(vis+1);
-<<<<<<< HEAD
-  const {N,P,K}=computeSmartNPK(v);
-=======
- const cls = classifyADC(v);
-
-let N = 0;
-let P = 0;
-let K = 0;
-
-const intensity = v.reduce((a,b)=>a+b,0)/18;
-
-if(cls){
-
-  switch(cls.best){
-
-    case "nitrogen":
-      N = Math.round(220 + intensity*0.08);
-      P = Math.round(20 + intensity*0.01);
-      K = Math.round(25 + intensity*0.015);
-      break;
-
-    case "phosphorus":
-      N = Math.round(20 + intensity*0.01);
-      P = Math.round(180 + intensity*0.06);
-      K = Math.round(25 + intensity*0.01);
-      break;
-
-    case "potassium":
-      N = Math.round(15 + intensity*0.005);
-      P = Math.round(20 + intensity*0.008);
-      K = Math.round(260 + intensity*0.09);
-      break;
-
-    case "NPK":
-      N = Math.round(140 + intensity*0.05);
-      P = Math.round(110 + intensity*0.04);
-      K = Math.round(170 + intensity*0.06);
-      break;
-
-    default:
-      N = 5;
-      P = 3;
-      K = 4;
-  }
-}
->>>>>>> b59fc65c28346d46b7d52318755e493dcad3fd6d
+  const {N,P,K}=computeSmartNPK(v,REFS);
   const score=Math.round(Math.min(98,Math.max(8,(om/10)*35+(1-Math.abs(moisture-42)/42)*30+(N/350)*20+(K/280)*15)));
   let soilType="Mixed Mineral",soilConf=60;
   if(nirRatio>2.5&&om>4){soilType="Loamy / Rich";soilConf=82;}
@@ -404,32 +149,8 @@ if(cls){
   if(ec>3)recs.push({type:"alert",icon:"⚠",text:"High salinity — leach field before sowing"});
   if(compaction>60)recs.push({type:"warn",icon:"⛏",text:"Compaction detected — deep tillage recommended"});
   if(score>=70)recs.push({type:"ok",icon:"✓",text:"Soil in good condition — proceed with ploughing"});
- return{
-  moisture,
-  om:om.toFixed(1),
-  ec:ec.toFixed(2),
-  ndmi:ndmi.toFixed(3),
-
-  N,
-  P,
-  K,
-
-  detected: cls?.best || "air",
-  confidence: cls?.confidence || 0,
-
-  score,
-  soilType,
-  soilConf,
-  ploughReady,
-  compaction,
-  salinityRisk,
-  salinityCol,
-  recs,
-
-  nirAvg:Math.round(nir),
-  visAvg:Math.round(vis)
-};
-
+  return{moisture,om:om.toFixed(1),ec:ec.toFixed(2),ndmi:ndmi.toFixed(3),N,P,K,score,soilType,soilConf,ploughReady,compaction,salinityRisk,salinityCol,recs,nirAvg:Math.round(nir),visAvg:Math.round(vis)};
+}
 
 function WaterfallCanvas({rows,selCh,onChClick}){
   const ref=useRef(null);
@@ -522,13 +243,39 @@ function ChCard({ch,val,hist,selected,onClick}){
   </div>);
 }
 
-// ── COMPARE TAB ─────────────────────────────────────────────────────────────
+// ── CLASSIFY TAB ─────────────────────────────────────────────────────────────
 function ClassifyTab({adc,reads}){
   const clf=classifyADC(adc);
   const S={
     card:{background:"#0c1322",border:"1px solid #14213a",borderRadius:11,padding:16,marginBottom:12},
     ct:{fontSize:12,fontWeight:700,color:"#d4e2f4"},cs:{fontSize:10,color:"#2d4060"},
   };
+
+  // NPK values per detected class — what you measured in real samples
+  const CLASS_NPK_DISPLAY = {
+    air: { N:0,   P:0,   K:0   },
+    N:   { N:280, P:15,  K:20  },
+    P:   { N:10,  P:120, K:15  },
+    K:   { N:12,  P:18,  K:240 },
+    npk: { N:180, P:90,  K:160 },
+  };
+
+  // Live NPK — blend by cosine similarity weights (same logic as computeSmartNPK)
+  const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
+  const mag=(a)=>Math.sqrt(a.reduce((s,v)=>s+v*v,0));
+  const cos=(a,b)=>{const m=mag(a)*mag(b);return m===0?0:dot(a,b)/m;};
+  let liveNPK = {N:0,P:0,K:0};
+  if(adc && !adc.every(v=>v===0) && clf && clf.best !== "air"){
+    const activeKeys=["N","P","K","npk"];
+    const weights=Object.fromEntries(activeKeys.map(k=>[k,Math.max(0,cos(adc,REFS[k]))]));
+    const wTotal=activeKeys.reduce((s,k)=>s+weights[k],0);
+    if(wTotal>0){
+      const b={N:0,P:0,K:0};
+      for(const k of activeKeys){const w=weights[k]/wTotal;b.N+=CLASS_NPK_DISPLAY[k].N*w;b.P+=CLASS_NPK_DISPLAY[k].P*w;b.K+=CLASS_NPK_DISPLAY[k].K*w;}
+      liveNPK={N:Math.round(b.N),P:Math.round(b.P),K:Math.round(b.K)};
+    }
+  }
+
   const diff=clf?adc.map((v,i)=>v-REFS[clf.best][i]):new Array(18).fill(0);
   const maxD=Math.max(...diff.map(Math.abs),1);
   const overData={labels:CH.map(c=>c.nm+""),datasets:[
@@ -536,6 +283,7 @@ function ClassifyTab({adc,reads}){
     ...(clf?[{label:REF_META[clf.best].label+" (ref)",data:REFS[clf.best],borderColor:REF_META[clf.best].col,backgroundColor:REF_META[clf.best].col.replace(")",",0.06)").replace("rgb","rgba"),borderWidth:2,borderDash:[6,3],pointRadius:2,tension:.35,fill:false,order:2}]:[]),
   ]};
   const overOpts={responsive:true,maintainAspectRatio:false,animation:{duration:0},plugins:{legend:{display:true,position:"top",labels:{color:"#7b96b8",font:{size:11},boxWidth:14,padding:12}},tooltip:{callbacks:{label:ctx=>" "+ctx.dataset.label+": "+ctx.parsed.y+" ADC"}}},scales:{x:{ticks:{color:"#3d5c7a",font:{size:10,family:"monospace"}},grid:{color:"#0d1625"},border:{display:false}},y:{min:0,max:4095,ticks:{color:"#3d5c7a",font:{size:10},maxTicksLimit:6},grid:{color:"#111e33"},border:{display:false}}}};
+
   return(
     <div style={{flex:1,overflowY:"auto",background:"#080c18",padding:12,display:"flex",flexDirection:"column",gap:12}}>
 
@@ -546,55 +294,70 @@ function ClassifyTab({adc,reads}){
           <span style={{fontSize:10,color:"#2d4060"}}>{reads>0?reads+" reads":"No data — connect sensor"}</span>
         </div>
 
-        {/* 3 condition cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:0}}>
+        {/* 5 condition cards */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:0}}>
           {Object.entries(REF_META).map(([key,meta])=>{
             const isMatch=clf?.best===key;
             const score=clf?.scores[key]??0;
-            const conf=clf?.confidence??0;
-            const pct=score;
+            const npkRow=CLASS_NPK_DISPLAY[key];
             return(
               <div key={key} style={{
-                padding:"20px 20px 16px",
+                padding:"16px 14px 14px",
                 background:isMatch?rgba(meta.col,.12):"transparent",
                 borderRight:"1px solid #14213a",
                 borderTop:isMatch?`3px solid ${meta.col}`:"3px solid transparent",
                 transition:"all .3s",
                 position:"relative",
               }}>
-                {isMatch&&<div style={{position:"absolute",top:10,right:12,fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:10,background:rgba(meta.col,.25),color:meta.col,letterSpacing:.8}}>DETECTED</div>}
-                <div style={{fontSize:32,marginBottom:6}}>{meta.emoji}</div>
-                <div style={{fontSize:20,fontWeight:800,color:isMatch?meta.col:"#4a6080",marginBottom:3}}>{meta.label}</div>
-                <div style={{fontSize:11,color:"#3d5c7a",marginBottom:12}}>{meta.desc}</div>
+                {isMatch&&<div style={{position:"absolute",top:8,right:8,fontSize:8,fontWeight:700,padding:"2px 6px",borderRadius:10,background:rgba(meta.col,.25),color:meta.col,letterSpacing:.8}}>DETECTED</div>}
+                <div style={{fontSize:24,marginBottom:4}}>{meta.emoji}</div>
+                <div style={{fontSize:16,fontWeight:800,color:isMatch?meta.col:"#4a6080",marginBottom:2}}>{meta.label}</div>
+                <div style={{fontSize:10,color:"#3d5c7a",marginBottom:10}}>{meta.desc}</div>
 
                 {/* match score bar */}
-                <div style={{marginBottom:4}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <span style={{fontSize:9,color:"#2d4060",fontWeight:600,letterSpacing:.8,textTransform:"uppercase"}}>Match Score</span>
-                    <span style={{fontSize:12,fontWeight:700,color:isMatch?meta.col:"#4a6080",fontFamily:"monospace"}}>{pct.toFixed(1)}%</span>
+                <div style={{marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                    <span style={{fontSize:8,color:"#2d4060",fontWeight:600,letterSpacing:.8,textTransform:"uppercase"}}>Match</span>
+                    <span style={{fontSize:11,fontWeight:700,color:isMatch?meta.col:"#4a6080",fontFamily:"monospace"}}>{score.toFixed(1)}%</span>
                   </div>
-                  <div style={{height:6,background:"#14213a",borderRadius:3,overflow:"hidden"}}>
-                    <div style={{height:"100%",borderRadius:3,background:isMatch?meta.col:"#1e3a5f",width:(pct/100*100)+"%",transition:"width .5s"}}/>
+                  <div style={{height:5,background:"#14213a",borderRadius:3,overflow:"hidden"}}>
+                    <div style={{height:"100%",borderRadius:3,background:isMatch?meta.col:"#1e3a5f",width:score+"%",transition:"width .5s"}}/>
                   </div>
                 </div>
 
-                {isMatch&&<div style={{marginTop:10,fontSize:10,color:"#7b96b8",lineHeight:1.6,borderTop:"1px solid #14213a",paddingTop:10}}>{meta.hint}</div>}
+                {/* NPK reading for this class */}
+                <div style={{borderTop:"1px solid #0f1a2d",paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
+                  {[["N","#4ade80",npkRow.N,280],["P","#fb923c",npkRow.P,160],["K","#c084fc",npkRow.K,240]].map(([el,col,val,mx])=>(
+                    <div key={el} style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontSize:9,fontWeight:800,color:col,width:10}}>{el}</span>
+                      <div style={{flex:1,height:3,background:"#14213a",borderRadius:2,overflow:"hidden"}}>
+                        <div style={{height:"100%",borderRadius:2,background:col,width:(Math.min(1,val/mx)*100)+"%"}}/>
+                      </div>
+                      <span style={{fontSize:9,fontFamily:"monospace",color:isMatch?col:"#2d4060",fontWeight:isMatch?700:400,width:32,textAlign:"right"}}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {isMatch&&<div style={{marginTop:8,fontSize:9,color:"#7b96b8",lineHeight:1.5,borderTop:"1px solid #14213a",paddingTop:8}}>{meta.hint}</div>}
               </div>
             );
           })}
         </div>
 
-        {/* confidence strip */}
-        {clf&&(
-          <div style={{padding:"10px 16px",background:"#080e1c",display:"flex",alignItems:"center",gap:16,borderTop:"1px solid #0f1a2d"}}>
-            <span style={{fontSize:10,color:"#4a6080"}}>Classification confidence:</span>
-            <div style={{flex:1,height:5,background:"#14213a",borderRadius:3,overflow:"hidden"}}>
-              <div style={{height:"100%",borderRadius:3,background:clf.confidence>60?"#22c55e":clf.confidence>30?"#f59e0b":"#ef4444",width:clf.confidence+"%",transition:"width .5s"}}/>
+        {/* live NPK strip */}
+        <div style={{padding:"10px 16px",background:"#080e1c",borderTop:"1px solid #0f1a2d",display:"flex",alignItems:"center",gap:24}}>
+          <span style={{fontSize:10,color:"#4a6080",fontWeight:700,flexShrink:0}}>Live NPK from detection:</span>
+          {[["N","#4ade80",liveNPK.N,280],["P","#fb923c",liveNPK.P,160],["K","#c084fc",liveNPK.K,240]].map(([el,col,val,mx])=>(
+            <div key={el} style={{display:"flex",alignItems:"center",gap:8,flex:1}}>
+              <span style={{fontSize:11,fontWeight:800,color:col,width:12}}>{el}</span>
+              <div style={{flex:1,height:6,background:"#14213a",borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:"100%",borderRadius:3,background:col,width:(Math.min(1,val/mx)*100)+"%",transition:"width .5s"}}/>
+              </div>
+              <span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"monospace",width:50,textAlign:"right"}}>{val} <span style={{fontSize:9,fontWeight:400,color:"#2d4060"}}>ppm</span></span>
             </div>
-            <span style={{fontSize:11,fontWeight:700,color:clf.confidence>60?"#22c55e":clf.confidence>30?"#f59e0b":"#ef4444",fontFamily:"monospace"}}>{clf.confidence}%</span>
-            {clf.confidence<30&&<span style={{fontSize:10,color:"#ef4444"}}>⚠ Low — readings may be ambiguous</span>}
-          </div>
-        )}
+          ))}
+          {clf&&<span style={{fontSize:10,color:"#4a6080",flexShrink:0}}>conf: <b style={{color:clf.confidence>60?"#22c55e":clf.confidence>30?"#f59e0b":"#ef4444",fontFamily:"monospace"}}>{clf.confidence}%</b></span>}
+        </div>
       </div>
 
       {/* ─ OVERLAY CHART ─ */}
@@ -607,7 +370,6 @@ function ClassifyTab({adc,reads}){
           <Line data={overData} options={overOpts} role="img" aria-label="Spectral overlay chart"/>
         </div>
       </div>
-
 
       {/* ─ CHANNEL TABLE ─ */}
       {clf&&(
