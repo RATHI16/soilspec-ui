@@ -47,76 +47,29 @@ function cosineSim(a,b){const dot=a.reduce((s,v,i)=>s+v*b[i],0);const na=Math.sq
 function classifyADC(adc){if(!adc||adc.every(v=>v===0))return null;const scores=Object.fromEntries(Object.entries(REFS).map(([k,ref])=>[k,Math.round(cosineSim(adc,ref)*10000)/100]));const best=Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0];const diff=Math.max(...Object.values(scores))-Object.values(scores).sort((a,b)=>a-b)[1];const confidence=Math.round(Math.min(99,diff*8));return{best,scores,confidence};}
 
 
-// ── NPK estimation — driven by cosine similarity to real measured references ──
-// Classification: find closest match among air/N/P/K/npk reference spectra.
-// Each class maps to real NPK levels measured in lab.
-// Similarity scores are used to interpolate between classes for gradual output.
-function computeSmartNPK(adc, refs) {
+function computeSmartNPK(adc) {
   if (!adc || adc.every(v => v === 0)) return { N: 0, P: 0, K: 0 };
 
-  const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
-  const mag=(a)=>Math.sqrt(a.reduce((s,v)=>s+v*v,0));
-  const cos=(a,b)=>{const m=mag(a)*mag(b);return m===0?0:dot(a,b)/m;};
+  const cls = classifyADC(adc);
+  if (!cls || cls.best === "air") return { N: 0, P: 0, K: 0 };
 
-  // Cosine similarity to every reference class
-  const sims = Object.fromEntries(Object.entries(refs).map(([k,ref])=>[k, cos(adc,ref)]));
+  const intensity = adc.reduce((s,v)=>s+v, 0) / adc.length;
+  const scale = Math.min(1.5, Math.max(0.5, intensity / 600));
 
-  // Air = zero NPK
-  if (sims.air >= sims.N && sims.air >= sims.P && sims.air >= sims.K && sims.air >= sims.npk) {
-    return { N: 0, P: 0, K: 0 };
+  switch (cls.best) {
+    case "N":
+      return { N: Math.round(280 * scale), P: Math.round(18 * scale), K: Math.round(22 * scale) };
+    case "P":
+      return { N: Math.round(15 * scale), P: Math.round(130 * scale), K: Math.round(18 * scale) };
+    case "K":
+      return { N: Math.round(12 * scale), P: Math.round(15 * scale), K: Math.round(240 * scale) };
+    case "npk":
+      return { N: Math.round(200 * scale), P: Math.round(110 * scale), K: Math.round(180 * scale) };
+    default:
+      return { N: 0, P: 0, K: 0 };
   }
-
-  // Base NPK levels per class (ppm equivalents derived from your sample readings)
-  // These are the "pure" values when a sample perfectly matches that reference
-  const CLASS_NPK = {
-    air: { N:   0, P:   0, K:   0 },
-    N:   { N: 280, P:  15, K:  20 },
-    P:   { N:  10, P: 120, K:  15 },
-    K:   { N:  12, P:  18, K: 240 },
-    npk: { N: 180, P:  90, K: 160 },
-  };
-
-  // Weighted blend: each class contributes proportional to its similarity
-  // (exclude air from the blend since it means "no sample")
-  const activeKeys = ["N","P","K","npk"];
-  const weights = Object.fromEntries(activeKeys.map(k=>[k, Math.max(0, sims[k])]));
-  const wTotal = activeKeys.reduce((s,k)=>s+weights[k], 0);
-
-  if (wTotal === 0) return { N: 0, P: 0, K: 0 };
-
-  const blended = { N: 0, P: 0, K: 0 };
-  for (const k of activeKeys) {
-    const w = weights[k] / wTotal;
-    blended.N += CLASS_NPK[k].N * w;
-    blended.P += CLASS_NPK[k].P * w;
-    blended.K += CLASS_NPK[k].K * w;
-  }
-
-  return {
-    N: Math.round(blended.N),
-    P: Math.round(blended.P),
-    K: Math.round(blended.K),
-  };
 }
 
-// Legacy — kept so nothing below breaks; remove the old body:
-function _unusedOldNPKBody(adc, refs) {
-  const keyIdx = [3, 4, 5, 6, 7];
-  let suppSum = 0;
-  for (const i of keyIdx) {
-    const s = water[i] > 0 ? Math.max(0, (water[i] - adc[i]) / water[i]) : 0;
-    suppSum += s;
-  }
-  const avgSupp = suppSum / keyIdx.length;
-  // avgSupp ~0.35-0.43 = 1 spoon, ~0.45-0.55 = 2 spoons, 0.55+ = concentrated
-  const conc = Math.min(1.0, Math.max(0, avgSupp / 0.55));
-
-  return {
-    N: Math.round(Math.max(80,  Math.min(400, 80  + conc * 320))),
-    P: Math.round(Math.max(30,  Math.min(200, 30  + conc * 170))),
-    K: Math.round(Math.max(60,  Math.min(300, 60  + conc * 240))),
-  };
-}
 
 function calcSoil(v) {
   if (!v||v.every(x=>x===0)) return null;
@@ -127,7 +80,7 @@ function calcSoil(v) {
   const ec=Math.max(0.1,Math.min(6,((v[15]-v[17])/(v[15]+v[17]+1))*3+1.8));
   const ndmi=(nir-vis)/(nir+vis+1);
   const nirRatio=nir/(vis+1);
-  const {N,P,K}=computeSmartNPK(v,REFS);
+  const {N,P,K}=computeSmartNPK(v);
   const score=Math.round(Math.min(98,Math.max(8,(om/10)*35+(1-Math.abs(moisture-42)/42)*30+(N/350)*20+(K/280)*15)));
   let soilType="Mixed Mineral",soilConf=60;
   if(nirRatio>2.5&&om>4){soilType="Loamy / Rich";soilConf=82;}
@@ -251,30 +204,7 @@ function ClassifyTab({adc,reads}){
     ct:{fontSize:12,fontWeight:700,color:"#d4e2f4"},cs:{fontSize:10,color:"#2d4060"},
   };
 
-  // NPK values per detected class — what you measured in real samples
-  const CLASS_NPK_DISPLAY = {
-    air: { N:0,   P:0,   K:0   },
-    N:   { N:280, P:15,  K:20  },
-    P:   { N:10,  P:120, K:15  },
-    K:   { N:12,  P:18,  K:240 },
-    npk: { N:180, P:90,  K:160 },
-  };
-
-  // Live NPK — blend by cosine similarity weights (same logic as computeSmartNPK)
-  const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
-  const mag=(a)=>Math.sqrt(a.reduce((s,v)=>s+v*v,0));
-  const cos=(a,b)=>{const m=mag(a)*mag(b);return m===0?0:dot(a,b)/m;};
-  let liveNPK = {N:0,P:0,K:0};
-  if(adc && !adc.every(v=>v===0) && clf && clf.best !== "air"){
-    const activeKeys=["N","P","K","npk"];
-    const weights=Object.fromEntries(activeKeys.map(k=>[k,Math.max(0,cos(adc,REFS[k]))]));
-    const wTotal=activeKeys.reduce((s,k)=>s+weights[k],0);
-    if(wTotal>0){
-      const b={N:0,P:0,K:0};
-      for(const k of activeKeys){const w=weights[k]/wTotal;b.N+=CLASS_NPK_DISPLAY[k].N*w;b.P+=CLASS_NPK_DISPLAY[k].P*w;b.K+=CLASS_NPK_DISPLAY[k].K*w;}
-      liveNPK={N:Math.round(b.N),P:Math.round(b.P),K:Math.round(b.K)};
-    }
-  }
+  const liveNPK = computeSmartNPK(adc);
 
   const diff=clf?adc.map((v,i)=>v-REFS[clf.best][i]):new Array(18).fill(0);
   const maxD=Math.max(...diff.map(Math.abs),1);
