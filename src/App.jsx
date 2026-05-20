@@ -117,7 +117,6 @@ function calcSoil(v) {
   const salinityCol=ec>3?"#ef4444":ec>1.5?"#f59e0b":"#22c55e";
   const recs=[];
   if(moisture<20)recs.push({type:"warn",icon:"💧",text:"Moisture critically low — irrigate before ploughing"});
-  if(moisture>70)recs.push({type:"warn",icon:"💧",text:"Soil too wet — wait for drainage before tillage"});
   if(moisture>=20&&moisture<=60)recs.push({type:"ok",icon:"✓",text:"Moisture optimal for tillage operations"});
   if(N<80)recs.push({type:"warn",icon:"🌿",text:"Nitrogen low — apply 40–60 kg/ha urea"});
   if(P<30)recs.push({type:"warn",icon:"🌿",text:"Phosphorus low — consider DAP application"});
