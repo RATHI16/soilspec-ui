@@ -53,21 +53,36 @@ function computeSmartNPK(adc) {
   const cls = classifyADC(adc);
   if (!cls || cls.best === "air") return { N: 0, P: 0, K: 0 };
 
-  const intensity = adc.reduce((s,v)=>s+v, 0) / adc.length;
-  const scale = Math.min(1.5, Math.max(0.5, intensity / 600));
+  const CLASS_NPK = {
+    N:   { N: 300, P: 15, K: 20 },
+    P:   { N: 12,  P: 140, K: 15 },
+    K:   { N: 10,  P: 12, K: 250 },
+    npk: { N: 210, P: 115, K: 185 },
+  };
 
-  switch (cls.best) {
-    case "N":
-      return { N: Math.round(280 * scale), P: Math.round(18 * scale), K: Math.round(22 * scale) };
-    case "P":
-      return { N: Math.round(15 * scale), P: Math.round(130 * scale), K: Math.round(18 * scale) };
-    case "K":
-      return { N: Math.round(12 * scale), P: Math.round(15 * scale), K: Math.round(240 * scale) };
-    case "npk":
-      return { N: Math.round(200 * scale), P: Math.round(110 * scale), K: Math.round(180 * scale) };
-    default:
-      return { N: 0, P: 0, K: 0 };
-  }
+  const activeKeys = ["N","P","K","npk"];
+  const rawScores = activeKeys.map(k => cls.scores[k] || 0);
+  const minS = Math.min(...rawScores);
+  const diffs = rawScores.map(s => Math.max(0, s - minS));
+  const expD = diffs.map(d => Math.exp(d * 2));
+  const expSum = expD.reduce((s,v)=>s+v, 0);
+  const weights = expD.map(e => e / expSum);
+
+  let N=0, P=0, K=0;
+  activeKeys.forEach((k,i) => {
+    N += CLASS_NPK[k].N * weights[i];
+    P += CLASS_NPK[k].P * weights[i];
+    K += CLASS_NPK[k].K * weights[i];
+  });
+
+  const intensity = adc.reduce((s,v)=>s+v, 0) / adc.length;
+  const scale = Math.min(1.4, Math.max(0.4, intensity / 600));
+
+  return {
+    N: Math.round(N * scale),
+    P: Math.round(P * scale),
+    K: Math.round(K * scale),
+  };
 }
 
 
