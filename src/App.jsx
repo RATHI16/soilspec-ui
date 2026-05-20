@@ -43,8 +43,18 @@ const REF_META = {
   K:   { label:"K",    emoji:"🟣", desc:"Potassium solution",          col:"#c084fc", hint:"Potassium-rich sample detected. Strong NIR signal at 730 nm and above." },
   npk: { label:"NPK",  emoji:"🪴", desc:"NPK fertiliser blend",        col:"#f59e0b", hint:"Mixed NPK fertiliser detected. Balanced suppression across VIS bands." },
 };
-function cosineSim(a,b){const dot=a.reduce((s,v,i)=>s+v*b[i],0);const na=Math.sqrt(a.reduce((s,v)=>s+v*v,0));const nb=Math.sqrt(b.reduce((s,v)=>s+v*v,0));return na===0||nb===0?0:dot/(na*nb);}
-function classifyADC(adc){if(!adc||adc.every(v=>v===0))return null;const scores=Object.fromEntries(Object.entries(REFS).map(([k,ref])=>[k,Math.round(cosineSim(adc,ref)*10000)/100]));const best=Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0];const diff=Math.max(...Object.values(scores))-Object.values(scores).sort((a,b)=>a-b)[1];const confidence=Math.round(Math.min(99,diff*8));return{best,scores,confidence};}
+function euclideanDist(a,b){return Math.sqrt(a.reduce((s,v,i)=>s+(v-b[i])**2,0));}
+function classifyADC(adc){
+  if(!adc||adc.every(v=>v===0))return null;
+  const dists=Object.fromEntries(Object.entries(REFS).map(([k,ref])=>[k,euclideanDist(adc,ref)]));
+  const maxDist=Math.max(...Object.values(dists),1);
+  const scores=Object.fromEntries(Object.entries(dists).map(([k,d])=>[k,Math.round((1-d/maxDist)*10000)/100]));
+  const best=Object.entries(dists).sort((a,b)=>a[1]-b[1])[0][0];
+  const sortedDists=Object.values(dists).sort((a,b)=>a-b);
+  const gap=sortedDists[1]-sortedDists[0];
+  const confidence=Math.round(Math.min(99,Math.max(10,gap/maxDist*400)));
+  return{best,scores,confidence};
+}
 
 
 function computeSmartNPK(adc) {
@@ -62,11 +72,10 @@ function computeSmartNPK(adc) {
 
   const activeKeys = ["N","P","K","npk"];
   const rawScores = activeKeys.map(k => cls.scores[k] || 0);
-  const minS = Math.min(...rawScores);
-  const diffs = rawScores.map(s => Math.max(0, s - minS));
-  const expD = diffs.map(d => Math.exp(d * 2));
-  const expSum = expD.reduce((s,v)=>s+v, 0);
-  const weights = expD.map(e => e / expSum);
+  const maxS = Math.max(...rawScores);
+  const diffs = rawScores.map(s => Math.max(0, s - (maxS - 30)));
+  const total = diffs.reduce((s,v)=>s+v, 0);
+  const weights = total > 0 ? diffs.map(d => d / total) : [0.25,0.25,0.25,0.25];
 
   let N=0, P=0, K=0;
   activeKeys.forEach((k,i) => {
