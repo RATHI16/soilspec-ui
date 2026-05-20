@@ -220,6 +220,13 @@ function ClassifyTab({adc,reads}){
   };
 
   const liveNPK = computeSmartNPK(adc);
+  const CLASS_NPK_DISPLAY = {
+    air: { N:0, P:0, K:0 },
+    N:   { N:300, P:15, K:20 },
+    P:   { N:12, P:140, K:15 },
+    K:   { N:10, P:12, K:250 },
+    npk: { N:210, P:115, K:185 },
+  };
 
   const diff=clf?adc.map((v,i)=>v-REFS[clf.best][i]):new Array(18).fill(0);
   const maxD=Math.max(...diff.map(Math.abs),1);
